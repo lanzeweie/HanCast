@@ -8,7 +8,6 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{oneshot, Mutex};
-use tokio::task::JoinHandle;
 
 /// Manages the Python sidecar process.
 ///
@@ -20,7 +19,7 @@ pub struct SidecarManager {
     child: Arc<Mutex<Option<CommandChild>>>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next_id: AtomicU64,
-    _reader: JoinHandle<()>,
+    _reader: tauri::async_runtime::JoinHandle<()>,
 }
 
 impl SidecarManager {
@@ -28,8 +27,8 @@ impl SidecarManager {
     pub fn new(app: AppHandle) -> Result<Self, String> {
         let (rx, child) = app
             .shell()
-            .command("python")
-            .args(["-m", "macast_sidecar.main"])
+            .command("uv")
+            .args(["run", "python", "-m", "macast_sidecar.main"])
             .current_dir("../macast-backend")
             .spawn()
             .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;
@@ -40,7 +39,7 @@ impl SidecarManager {
 
         // Background task: read CommandEvents and dispatch
         let pending_clone = Arc::clone(&pending);
-        let reader = tokio::spawn(async move {
+        let reader = tauri::async_runtime::spawn(async move {
             Self::reader_loop(rx, pending_clone, app).await;
         });
 
@@ -164,19 +163,20 @@ impl Drop for SidecarManager {
         // Try graceful shutdown: send exit command, then kill
         let child = Arc::clone(&self.child);
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let mut guard = child.lock().await;
-                if let Some(ref mut child) = *guard {
-                    let _ = child.write(b"{\"cmd\":\"exit\"}\n");
-                }
-                // Give Python a moment to clean up
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                // Take ownership and kill
-                if let Some(child) = guard.take() {
-                    let _ = child.kill();
-                }
-            });
+            // Use std sync for cleanup since we're outside tokio context
+            let rt = tokio::runtime::Runtime::new();
+            if let Ok(rt) = rt {
+                rt.block_on(async {
+                    let mut guard = child.lock().await;
+                    if let Some(ref mut child) = *guard {
+                        let _ = child.write(b"{\"cmd\":\"exit\"}\n");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    if let Some(child) = guard.take() {
+                        let _ = child.kill();
+                    }
+                });
+            }
         });
     }
 }

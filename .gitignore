@@ -27,6 +27,7 @@ src-tauri/gen/
 # ── IDE ──
 .vscode/
 .idea/
+.history/
 *.swp
 *.swo
 *~

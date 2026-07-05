@@ -1,0 +1,87 @@
+"""
+Tauri Sidecar 入口 - 通过 stdin/stdout JSON 与 Rust 通信
+
+协议格式:
+  请求: {"id": <int>, "cmd": <string>, "params": <object>}
+  响应: {"id": <int>, "success": <bool>, "data": <any>, "error": <string>}
+  事件: {"event": <string>, "data": <object>}
+"""
+
+import sys
+import json
+import logging
+import signal
+from .commands import CommandHandler
+from .utils.logger import setup_logger
+
+logger = setup_logger("macast.sidecar", level=logging.INFO)
+
+
+def main():
+    """Sidecar 主循环"""
+    handler = CommandHandler()
+
+    # 优雅退出
+    def shutdown(signum, frame):
+        logger.info("Shutting down...")
+        handler.cleanup()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    logger.info("Macast Sidecar started")
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+
+        req_id = None
+        try:
+            request = json.loads(line)
+            req_id = request.get("id")
+            cmd = request.get("cmd")
+            params = request.get("params", {})
+
+            # 特殊命令：退出
+            if cmd == "exit":
+                handler.cleanup()
+                break
+
+            # 执行命令
+            result = handler.execute(cmd, params)
+
+            response = {
+                "id": req_id,
+                "success": True,
+                "data": result
+            }
+
+        except json.JSONDecodeError as e:
+            response = {
+                "id": req_id,
+                "success": False,
+                "error": f"Invalid JSON: {e}"
+            }
+        except KeyError as e:
+            response = {
+                "id": req_id,
+                "success": False,
+                "error": f"Missing field: {e}"
+            }
+        except Exception as e:
+            logger.exception(f"Command error: {e}")
+            response = {
+                "id": req_id,
+                "success": False,
+                "error": str(e)
+            }
+
+        print(json.dumps(response, ensure_ascii=False), flush=True)
+
+    logger.info("Macast Sidecar exited")
+
+
+if __name__ == "__main__":
+    main()

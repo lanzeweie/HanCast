@@ -1,0 +1,69 @@
+# ── Node.js ──
+node_modules/
+dist/
+.npm
+*.tsbuildinfo
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.whl
+
+# ── Rust / Tauri ──
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── 构建产物 ──
+*.dmg
+*.AppImage
+*.msi
+*.exe
+!src-tauri/icons/*.ico
+!src-tauri/icons/*.png
+!src-tauri/icons/*.icns
+
+# ── PyInstaller ──
+build/
+dist/
+*.spec
+
+# ── 日志 ──
+*.log
+logs/
+
+# ── 系统 ──
+.Spotlight-V100
+.Trashes
+.fseventsd
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# ── BMad (框架文件，不纳入项目) ──
+_bmad/
+_bmad-output/
+.claude/skills/
+.claude/plans/
+
+# ── 原始参考代码 (仅参考，不纳入主项目) ──
+Macast-main/

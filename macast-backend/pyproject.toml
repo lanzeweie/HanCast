@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "macast-sidecar"
+name = "macast-han-sidecar"
 version = "2.0.0"
-description = "Macast 2.0 Python Sidecar"
+description = "Macast-Han Python Sidecar (fork of xfangfang/Macast)"
 readme = "README.md"
 license = "GPL-3.0"
 requires-python = ">=3.11"
 authors = [
-    { name = "xfangfang", email = "xfangfang@example.com" },
+    { name = "Han" },
 ]
 
 dependencies = [

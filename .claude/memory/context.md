@@ -1,15 +1,26 @@
-# Macast 2.0 项目上下文
+# Macast-Han 项目上下文
 
 **最后更新**: 2026-07-05
+**作者**: Han
+**性质**: 基于 xfangfang/Macast 的二次开发（非官方更新）
 
 ---
 
 ## 项目定位
 
-Macast 是一款**跨平台投屏接收与发送应用**，核心功能：
+Macast-Han 是基于 [xfangfang/Macast](https://github.com/xfangfang/Macast)（最后更新 2022 年）的二次开发项目，是一款**跨平台投屏接收与发送应用**。
+
+核心功能：
 1. **接收投屏**: 作为 DLNA Renderer，接收手机/其他设备的投屏
 2. **发送投屏**: 将本地媒体文件投屏到局域网设备
 3. **链接投屏**: 解析媒体链接并投屏
+
+## 与原项目的关系
+
+- **原项目**: xfangfang/Macast（Python + pystray，2022 年停更）
+- **Macast-Han**: Tauri 2.0 + Rust 桥接 + Python Sidecar
+- **复用代码**: SSDP、DLNA 协议、MPV 渲染器、UPnP XML
+- **废弃代码**: pystray GUI、CherryPy HTTP 服务、插件系统
 
 ## 目标用户
 

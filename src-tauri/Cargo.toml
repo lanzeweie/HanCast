@@ -1,12 +1,12 @@
 [package]
-name = "macast"
+name = "macast-han"
 version = "2.0.0"
-description = "A cross-platform media casting application"
-authors = ["xfangfang"]
+description = "Macast-Han: A cross-platform media casting application (fork of xfangfang/Macast)"
+authors = ["Han"]
 edition = "2021"
 
 [lib]
-name = "macast_lib"
+name = "macast_han_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

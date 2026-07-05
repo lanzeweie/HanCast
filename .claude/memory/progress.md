@@ -1,4 +1,4 @@
-# Macast 2.0 开发进度
+# Macast-Han 开发进度
 
 ## 当前阶段: Phase 0 — 项目初始化
 

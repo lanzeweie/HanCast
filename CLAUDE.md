@@ -1,14 +1,15 @@
-# CLAUDE.md — Macast 2.0 项目指南
+# CLAUDE.md — Macast-Han 项目指南
 
 ## 项目概述
 
-**Macast** 是一款跨平台投屏应用，支持将媒体文件/链接投屏到局域网设备，同时可作为 DLNA 接收端。
+**Macast-Han** 是基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 的二次开发项目，跨平台投屏应用，支持将媒体文件/链接投屏到局域网设备，同时可作为 DLNA 接收端。
 
-- **版本**: 2.0（从 1.x 重构）
-- **原始代码**: `Macast-main/`（Python 实现，最后更新 2022-01）
-- **目标架构**: Tauri 2.0 前端 + Python 后端
-- **原作者**: xfangfang
-- **协议**: GPL-3.0
+- **项目名**: Macast-Han
+- **作者**: Han
+- **性质**: 二次开发（非原项目官方更新）
+- **原始代码**: `Macast-main/`（原作者 xfangfang，最后更新 2022-01）
+- **目标架构**: Tauri 2.0 前端 + Rust 桥接 + Python 后端
+- **协议**: GPL-3.0（继承原项目）
 
 ## 技术栈
 

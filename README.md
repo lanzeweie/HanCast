@@ -1,11 +1,15 @@
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="120" alt="Macast Logo">
+  <img src="src-tauri/icons/icon.png" width="120" alt="Macast-Han Logo">
 </p>
 
-<h1 align="center">Macast 2.0</h1>
+<h1 align="center">Macast-Han</h1>
 
 <p align="center">
-  跨平台投屏应用 — 将媒体文件/链接投屏到局域网设备，同时可作为 DLNA 接收端
+  基于 <a href="https://github.com/xfangfang/Macast">Macast</a> 的二次开发 — 跨平台投屏应用
+</p>
+
+<p align="center">
+  作者: <b>Han</b> &nbsp;|&nbsp; 原项目: <a href="https://github.com/xfangfang/Macast">xfangfang/Macast</a>
 </p>
 
 <p align="center">
@@ -16,6 +20,16 @@
 </p>
 
 ---
+
+## 关于
+
+Macast-Han 是对 [xfangfang/Macast](https://github.com/xfangfang/Macast)（最后更新 2022 年）的二次开发。原项目使用 Python + pystray 实现，本项目将其重构为：
+
+- **Tauri 2.0** 替代 pystray 系统托盘（现代化 UI）
+- **Rust 壳层** 作为前端与 Python 的桥接
+- **Python Sidecar** 复用原项目 DLNA/SSDP 核心代码
+
+**不是原项目的官方更新**，是独立的二次开发作品。
 
 ## 功能
 
@@ -132,12 +146,24 @@ npm run tauri build
 | [前端 API 接口](docs/Macast-Frontend-API.md) | invoke 命令速查 |
 | [功能规格](docs/Macast-Functional-Spec.md) | 原始功能设计 |
 
+## 与原项目的关系
+
+| | 原 Macast | Macast-Han |
+|---|---|---|
+| 作者 | xfangfang | Han |
+| 前端 | pystray 系统托盘 | Tauri 2.0 + Vue 3 |
+| 后端 | Python (CherryPy) | Python (Sidecar stdin/stdout) |
+| 桥接 | 无 | Rust (Tauri Commands) |
+| 状态 | 2022 年停更 | 2026 年二次开发 |
+
+**复用的代码**: SSDP 设备发现、DLNA 协议、MPV 渲染器、UPnP XML 描述文件
+
 ## 许可证
 
-[GPL-3.0](LICENSE)
+基于 [GPL-3.0](LICENSE) — 继承原项目协议
 
 ## 致谢
 
-- [xfangfang/Macast](https://github.com/xfangfang/Macast) — 原始 1.x 实现
+- [xfangfang/Macast](https://github.com/xfangfang/Macast) — 原始项目，本项目的基础
 - [Tauri](https://tauri.app/) — 跨平台桌面应用框架
 - [DLNA/UPnP](https://www.dlna.org/) — 局域网投屏协议

@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicbarker/tauri/v2/core/tauri-config-schema/schema.json",
-  "productName": "Macast",
+  "productName": "Macast-Han",
   "version": "2.0.0",
-  "identifier": "com.macast.app",
+  "identifier": "com.han.macast",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Macast",
+        "title": "Macast-Han",
         "width": 420,
         "height": 600,
         "minWidth": 360,

@@ -8,7 +8,7 @@ echo ""
 PASS=0
 FAIL=0
 
-echo "[1/4] Python Backend Tests"
+echo "[1/5] Python Backend Tests"
 echo "----------------------------------------"
 cd macast-backend
 if ./.venv/Scripts/python.exe -m pytest tests/ -v --tb=short; then
@@ -19,7 +19,7 @@ fi
 cd ..
 echo ""
 
-echo "[2/4] Sidecar Communication Test"
+echo "[2/5] Sidecar Communication Test"
 echo "----------------------------------------"
 cd macast-backend
 RESULT=$(echo '{"id":1,"cmd":"get_devices","params":{}}' | ./.venv/Scripts/python.exe -m macast_sidecar.main 2>/dev/null)
@@ -31,7 +31,7 @@ fi
 cd ..
 echo ""
 
-echo "[3/4] TypeScript Type Check"
+echo "[3/5] TypeScript Type Check"
 echo "----------------------------------------"
 if npx vue-tsc --noEmit; then
     echo "[PASS] TypeScript type check"; ((PASS++))
@@ -40,13 +40,24 @@ else
 fi
 echo ""
 
-echo "[4/4] Frontend Build"
+echo "[4/5] Frontend Build"
 echo "----------------------------------------"
 if npx vite build; then
     echo "[PASS] Frontend build"; ((PASS++))
 else
     echo "[FAIL] Frontend build"; ((FAIL++))
 fi
+echo ""
+
+echo "[5/5] Rust Build"
+echo "----------------------------------------"
+cd src-tauri
+if cargo build; then
+    echo "[PASS] Rust build"; ((PASS++))
+else
+    echo "[FAIL] Rust build"; ((FAIL++))
+fi
+cd ..
 echo ""
 
 echo "========================================"

@@ -61,6 +61,8 @@ class ObserveClient:
 
     def send_event_callback(self, data):
         """Sending event data to client"""
+        logger.info(f"EVENT NOTIFY: service={self.service} to={self.host} "
+                    f"seq={self.seq} data={list(data.keys())}")
         headers = {"NT": "upnp:event",
                    "NTS": "upnp:propchange",
                    "CONTENT-TYPE": 'text/xml; charset="utf-8"',
@@ -363,7 +365,7 @@ class DLNAProtocol:
 
     def add_subscribe(self, service, url, timeout=1800):
         """Add a DLNA client to subscribe list"""
-        logger.debug("SUBSCRIBE: " + url)
+        logger.info(f"SUBSCRIBE ADD: service={service} url={url} timeout={timeout}")
         for client in self.event_subscribes:
             if self.event_subscribes[client].url == url and \
                     self.event_subscribes[client].service == service:
@@ -415,6 +417,8 @@ class DLNAProtocol:
         """Sending the states in the stateChangeList to the clients which subscribe to them."""
         if not bool(state_change_list):
             return
+        logger.info(f"EVENT: state_change={list(state_change_list.keys())}, "
+                    f"subscribers={len(self.event_subscribes)}")
         # remove offline clients
         while not self.removed_device_queue.empty():
             sid = self.removed_device_queue.get()

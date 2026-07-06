@@ -136,6 +136,7 @@ class MPVRenderer(Renderer):
     def update_state(self, res):
         """Update player state from mpv"""
         res = json.loads(res)
+        logger.debug(f"MPV STATE: {res}")
         if 'id' in res:
             if res['id'] == ObserveProperty.volume.value:
                 logger.info(res)
@@ -210,7 +211,7 @@ class MPVRenderer(Renderer):
 
     def send_command(self, command):
         """Sending command to mpv"""
-        logger.debug("send command: " + str(command))
+        logger.info(f"MPV CMD: {command}")
         data = {"command": command}
         msg = json.dumps(data) + '\n'
         with self.command_lock:
@@ -219,9 +220,10 @@ class MPVRenderer(Renderer):
                     self.ipc_sock.send_bytes(msg.encode())
                 else:
                     self.ipc_sock.sendall(msg.encode())
+                logger.info(f"MPV CMD sent OK: {command[0] if command else '?'}")
                 return True
             except Exception as e:
-                logger.error('sendCommand: ' + str(e))
+                logger.error(f"MPV CMD FAILED: {command} error: {e}")
                 return False
 
     def start_ipc(self):
@@ -246,6 +248,7 @@ class MPVRenderer(Renderer):
                                                   socket.SOCK_STREAM)
                     self.ipc_sock.connect(self.mpv_sock)
                 self.ipc_once_connected = True
+                logger.info("MPV IPC connected OK")
                 self.set_observe()
             except Exception as e:
                 logger.debug("mpv ipc socket reconnecting: {}".format(str(e)))

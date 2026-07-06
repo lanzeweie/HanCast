@@ -205,6 +205,7 @@ class SSDPService:
                 'USN': device_usn,
                 'LOCATION': location,
                 'ST': st,
+                'EXT': '',
                 'SERVER': self._server_info,
                 'CACHE-CONTROL': 'max-age=66',
             }

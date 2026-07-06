@@ -36,33 +36,53 @@ class DLNAHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_SUBSCRIBE(self):
-        """处理 SUBSCRIBE 请求 (事件订阅) — 与原始 Macast 一致"""
+        """处理 SUBSCRIBE 请求 (事件订阅)
+
+        原版 Macast 的 DLNAHandler.SUBSCRIBE 会调用
+        protocol.add_subscribe(service, suburl, timeout) 来存储订阅者，
+        然后事件线程通过 send_states_to_clients() 发送状态变化通知。
+        如果不调用 add_subscribe，订阅者不会被存储，状态变化无法通知到控制器。
+        """
         logger.info(f"SUBSCRIBE: {self.path}")
+
+        # 从路径提取服务名 (如 /AVTransport/event → AVTransport)
+        service = self.path.strip('/').split('/')[0] if self.path.strip('/') else ''
+
         sid_header = self.headers.get('SID')
         callback_header = self.headers.get('CALLBACK')
         timeout_header = self.headers.get('TIMEOUT', 'Second-1800')
         timeout = int(timeout_header.split('-')[-1]) if timeout_header else 1800
 
         if sid_header:
-            # 续订
-            logger.info(f"RENEW SUBSCRIBE: {self.path} SID={sid_header}")
+            # 续订 — 委托给 protocol.renew_subscribe()
+            logger.info(f"RENEW SUBSCRIBE: service={service} SID={sid_header}")
+            if self.command_handler and hasattr(self.command_handler, 'protocol'):
+                res = self.command_handler.protocol.renew_subscribe(sid_header, timeout)
+                if res != 200:
+                    logger.error(f"RENEW SUBSCRIBE: cannot find SID {sid_header}")
+                    self.send_error(412)
+                    return
             self.send_response(200)
             self.send_header('SID', sid_header)
             self.send_header('TIMEOUT', f'Second-{timeout}')
             self.end_headers()
         elif callback_header:
-            # 新订阅
-            import uuid
+            # 新订阅 — 委托给 protocol.add_subscribe()
             import re
-            suburl = re.findall(r"<(.*?)>", callback_header)
-            if suburl:
-                suburl = suburl[0]
-                logger.info(f"ADD SUBSCRIBE: {self.path} CALLBACK={suburl}")
-                new_sid = f"uuid:{uuid.uuid4()}"
-                self.send_response(200)
-                self.send_header('SID', new_sid)
-                self.send_header('TIMEOUT', f'Second-{timeout}')
-                self.end_headers()
+            suburl_match = re.findall(r"<(.*?)>", callback_header)
+            if suburl_match:
+                suburl = suburl_match[0]
+                logger.info(f"ADD SUBSCRIBE: service={service} CALLBACK={suburl}")
+                if self.command_handler and hasattr(self.command_handler, 'protocol'):
+                    res = self.command_handler.protocol.add_subscribe(
+                        service, suburl, timeout)
+                    self.send_response(200)
+                    self.send_header('SID', res['SID'])
+                    self.send_header('TIMEOUT', res['TIMEOUT'])
+                    self.end_headers()
+                else:
+                    logger.error("SUBSCRIBE: no protocol handler")
+                    self.send_error(503, "Service not ready")
             else:
                 logger.error(f"SUBSCRIBE: invalid CALLBACK format: {callback_header}")
                 self.send_error(412)
@@ -71,10 +91,21 @@ class DLNAHandler(BaseHTTPRequestHandler):
             self.send_error(412)
 
     def do_UNSUBSCRIBE(self):
-        """处理 UNSUBSCRIBE 请求 (取消订阅)"""
+        """处理 UNSUBSCRIBE 请求 (取消订阅)
+
+        原版 Macast 调用 protocol.remove_subscribe(sid) 移除订阅者。
+        """
         logger.info(f"UNSUBSCRIBE: {self.path}")
-        self.send_response(200)
-        self.end_headers()
+        sid_header = self.headers.get('SID')
+        if sid_header:
+            logger.info(f"REMOVE SUBSCRIBE: SID={sid_header}")
+            if self.command_handler and hasattr(self.command_handler, 'protocol'):
+                self.command_handler.protocol.remove_subscribe(sid_header)
+            self.send_response(200)
+            self.end_headers()
+        else:
+            logger.error("UNSUBSCRIBE: missing SID")
+            self.send_error(412)
 
     def do_POST(self):
         """处理 POST 请求 (SOAP) — 委托给 DLNAProtocol.call() 处理

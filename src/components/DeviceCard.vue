@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Device } from '@/types/device'
 import { useDeviceStore } from '@/stores/device'
 import { useMediaStore } from '@/stores/media'
 import { useCastStore } from '@/stores/cast'
+import Modal from './Modal.vue'
 
 const props = defineProps({
   device: {
@@ -19,15 +20,21 @@ const mediaStore = useMediaStore()
 const castStore = useCastStore()
 
 const showMenu = ref(false)
+const menuWrapRef = ref<HTMLElement | null>(null)
 
-function getDeviceIcon(type: string) {
-  switch (type) {
-    case 'tv': return '🖥️'
-    case 'speaker': return '🔊'
-    case 'box': return '📦'
-    default: return '📱'
+// Modal states
+const showRename = ref(false)
+const showRemove = ref(false)
+const renameInput = ref('')
+
+function onDocClick(e: MouseEvent) {
+  if (showMenu.value && menuWrapRef.value && !menuWrapRef.value.contains(e.target as Node)) {
+    showMenu.value = false
   }
 }
+
+onMounted(() => document.addEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -55,19 +62,27 @@ function onSetDefault() {
   showMenu.value = false
 }
 
-function onRename() {
-  const newName = prompt(t('devices.rename') + ':', props.device.name)
-  if (newName && newName.trim()) {
-    deviceStore.rename(props.device.id, newName.trim())
-  }
+function onRenameClick() {
+  renameInput.value = props.device.name
+  showRename.value = true
   showMenu.value = false
 }
 
-function onRemove() {
-  if (confirm(t('devices.remove') + '?')) {
-    deviceStore.remove(props.device.id)
+function onRenameConfirm() {
+  if (renameInput.value.trim()) {
+    deviceStore.rename(props.device.id, renameInput.value.trim())
   }
+  showRename.value = false
+}
+
+function onRemoveClick() {
+  showRemove.value = true
   showMenu.value = false
+}
+
+function onRemoveConfirm() {
+  deviceStore.hide(props.device.id)
+  showRemove.value = false
 }
 
 function toggleMenu() {
@@ -78,7 +93,6 @@ function toggleMenu() {
 <template>
   <div class="device-card" :class="{ 'device-card--offline': isOffline() }">
     <span class="device-card__status" :style="{ background: getStatusColor(device.status) }" />
-    <span class="device-card__icon">{{ getDeviceIcon(device.type) }}</span>
 
     <div class="device-card__info">
       <div class="device-card__name-row">
@@ -87,6 +101,7 @@ function toggleMenu() {
         </span>
         <span v-if="device.is_default" class="device-card__badge">{{ t('devices.defaultBadge') }}</span>
       </div>
+      <div class="device-card__ip">{{ device.ip }}</div>
     </div>
 
     <!-- Multi-room sync (for speakers) -->
@@ -115,7 +130,7 @@ function toggleMenu() {
 
       <span v-else class="device-card__na">{{ t('devices.notApplicable') }}</span>
 
-      <div class="device-card__menu-wrap">
+      <div class="device-card__menu-wrap" ref="menuWrapRef">
         <button class="device-card__more" @click="toggleMenu">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
             <circle cx="12" cy="5" r="1.5" />
@@ -126,11 +141,34 @@ function toggleMenu() {
 
         <div v-if="showMenu" class="device-card__menu">
           <button @click="onSetDefault">{{ t('devices.setDefault') }}</button>
-          <button @click="onRename">{{ t('devices.rename') }}</button>
-          <button class="device-card__menu--danger" @click="onRemove">{{ t('devices.remove') }}</button>
+          <button @click="onRenameClick">{{ t('devices.rename') }}</button>
+          <button class="device-card__menu--danger" @click="onRemoveClick">{{ t('devices.remove') }}</button>
         </div>
       </div>
     </div>
+
+    <!-- Rename Modal -->
+    <Modal :visible="showRename" :title="t('devices.rename')" @close="showRename = false">
+      <input
+        v-model="renameInput"
+        :placeholder="t('devices.rename')"
+        @keydown.enter="onRenameConfirm"
+        autofocus
+      />
+      <template #actions>
+        <button class="btn-cancel" @click="showRename = false">{{ t('common.cancel') }}</button>
+        <button class="btn-confirm" @click="onRenameConfirm">{{ t('common.confirm') }}</button>
+      </template>
+    </Modal>
+
+    <!-- Remove Confirm Modal -->
+    <Modal :visible="showRemove" :title="t('devices.remove')" @close="showRemove = false">
+      <p>{{ t('devices.removeConfirm', { name: device.name }) }}</p>
+      <template #actions>
+        <button class="btn-cancel" @click="showRemove = false">{{ t('common.cancel') }}</button>
+        <button class="btn-danger" @click="onRemoveConfirm">{{ t('common.confirm') }}</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -161,11 +199,6 @@ function toggleMenu() {
   flex-shrink: 0;
 }
 
-.device-card__icon {
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
 .device-card__info {
   flex: 1;
   min-width: 0;
@@ -185,6 +218,12 @@ function toggleMenu() {
 
 .device-card__name--offline {
   color: var(--text-tertiary);
+}
+
+.device-card__ip {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
 }
 
 .device-card__badge {

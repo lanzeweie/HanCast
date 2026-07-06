@@ -103,6 +103,9 @@ class CommandHandler:
             "set_default_device": self._set_default_device,
             "rename_device": self._rename_device,
             "remove_device": self._remove_device,
+            "hide_device": self._hide_device,
+            "unhide_device": self._unhide_device,
+            "get_hidden_devices": self._get_hidden_devices,
 
             # 投屏控制
             "start_cast": self._start_cast,
@@ -125,7 +128,8 @@ class CommandHandler:
 
         # 设置回调
         self.ssdp.set_callbacks(
-            on_device_found=self._on_device_found
+            on_device_found=self._on_device_found,
+            should_ignore_device=self._should_ignore_device
         )
 
         # 启动后台服务
@@ -180,11 +184,17 @@ class CommandHandler:
             "data": device.to_dict()
         }), flush=True)
 
+    def _should_ignore_device(self, device_udn: str) -> bool:
+        """检查设备是否应该被忽略（隐藏）"""
+        return self.config.is_device_hidden(device_udn)
+
     # ── 设备管理 ──
 
     def _get_devices(self, params: dict) -> list:
         devices = self.ssdp.get_devices()
-        return [d.to_dict() for d in devices]
+        # 过滤掉隐藏的设备
+        hidden = self.config.hidden_devices
+        return [d.to_dict() for d in devices if d.id not in hidden]
 
     def _refresh_devices(self, params: dict) -> list:
         self.ssdp.scan()
@@ -203,6 +213,22 @@ class CommandHandler:
     def _remove_device(self, params: dict) -> None:
         device_id = params["id"]
         self.ssdp.remove_device(device_id)
+
+    def _hide_device(self, params: dict) -> None:
+        """隐藏设备 - 加入隐藏列表，SSDP 仍能发现但不推送给前端"""
+        device_id = params["id"]
+        self.config.hide_device(device_id)
+        self.config.save()
+
+    def _unhide_device(self, params: dict) -> None:
+        """取消隐藏设备 - 从隐藏列表移除"""
+        device_id = params["id"]
+        self.config.unhide_device(device_id)
+        self.config.save()
+
+    def _get_hidden_devices(self, params: dict) -> list:
+        """获取隐藏设备列表"""
+        return self.config.hidden_devices
 
     # ── 投屏控制 ──
 

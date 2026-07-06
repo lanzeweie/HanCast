@@ -7,7 +7,7 @@ import {
   refreshDevices,
   setDefaultDevice as apiSetDefault,
   renameDevice as apiRename,
-  removeDevice as apiRemove,
+  hideDevice as apiHide,
 } from '@/api/commands'
 
 export const useDeviceStore = defineStore('device', () => {
@@ -51,8 +51,8 @@ export const useDeviceStore = defineStore('device', () => {
     if (device) device.name = name
   }
 
-  async function remove(id: string) {
-    await apiRemove(id)
+  async function hide(id: string) {
+    await apiHide(id)
     devices.value = devices.value.filter((d) => d.id !== id)
     if (selectedDevice.value?.id === id) {
       selectedDevice.value = null
@@ -109,7 +109,7 @@ export const useDeviceStore = defineStore('device', () => {
     refresh,
     setDefault,
     rename,
-    remove,
+    hide,
     selectDevice,
   }
 })

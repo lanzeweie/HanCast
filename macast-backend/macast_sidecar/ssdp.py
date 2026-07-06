@@ -89,6 +89,7 @@ class SSDPService:
         # 回调函数
         self._on_device_found: Optional[Callable[[Device], None]] = None
         self._on_device_lost: Optional[Callable[[str], None]] = None
+        self._should_ignore_device: Optional[Callable[[str], bool]] = None
 
         # 线程
         self._ssdp_thread: Optional[threading.Thread] = None
@@ -152,12 +153,15 @@ class SSDPService:
         logger.info(f"SSDP interfaces: {interfaces}")
         return interfaces
 
-    def set_callbacks(self, on_device_found=None, on_device_lost=None):
+    def set_callbacks(self, on_device_found=None, on_device_lost=None,
+                      should_ignore_device=None):
         self._on_device_found = on_device_found
         self._on_device_lost = on_device_lost
+        self._should_ignore_device = should_ignore_device
 
     def start(self):
         if self._running:
+            logger.warning("SSDP already running")
             return
         self._running = True
         self._register()
@@ -166,6 +170,9 @@ class SSDPService:
         self._ssdp_thread = threading.Thread(
             target=self._run_ssdp, name="SSDP_THREAD", daemon=True)
         self._ssdp_thread.start()
+
+        # 等待 SSDP 线程初始化
+        time.sleep(0.5)
 
         # 启动 NOTIFY 线程 (每 3 秒广播一次)
         self._notify_thread = threading.Thread(
@@ -178,6 +185,8 @@ class SSDPService:
 
         logger.info(
             f"SSDP started: {self._friendly_name} ({self._ip}:{self._port})")
+        logger.info(f"SSDP interfaces: {self.ip_list}")
+        logger.info(f"SSDP sock_list count: {len(self.sock_list)}")
 
     def stop(self):
         self._running = False
@@ -246,12 +255,14 @@ class SSDPService:
 
         try:
             self.sock.bind(('0.0.0.0', SSDP_PORT))
+            logger.info(f"SSDP bound to port {SSDP_PORT}")
         except Exception as e:
             logger.error(f"SSDP bind error: {e}")
             return
 
         self.sock.settimeout(1)
         logger.info(f"SSDP listening on port {SSDP_PORT}")
+        logger.info(f"SSDP multicast memberships: {len(self.ip_list)}")
 
         while self._running:
             try:
@@ -301,7 +312,8 @@ class SSDPService:
         if cmd[0] == 'M-SEARCH' and cmd[1] == '*':
             self._discovery_request(headers, (host, port))
         elif cmd[0] == 'NOTIFY' and cmd[1] == '*':
-            pass
+            # 处理设备上线通知
+            self._handle_notify(headers, (host, port))
 
     def _discovery_request(self, headers, host_port):
         """处理 M-SEARCH 请求 — 精确复刻原始 Macast"""
@@ -349,6 +361,57 @@ class SSDPService:
         a = [int(n) for n in mask.split('.')]
         b = [int(n) for n in ip.split('.')]
         return [a[i] & b[i] for i in range(4)]
+
+    def _handle_notify(self, headers, host_port):
+        """处理 NOTIFY 消息 — 设备上线/离线通知"""
+        (host, port) = host_port
+        nts = headers.get('nts', '')
+
+        # 只处理 ssdp:alive 通知（设备上线）
+        if nts != 'ssdp:alive':
+            return
+
+        location = headers.get('location', '')
+        if not location:
+            return
+
+        logger.info(f"NOTIFY alive from {host}:{port}, location: {location}")
+
+        # 异步获取设备描述
+        threading.Thread(
+            target=self._fetch_device_from_notify,
+            args=(location, host),
+            daemon=True
+        ).start()
+
+    def _fetch_device_from_notify(self, location, ip):
+        """从 NOTIFY 的 LOCATION 获取设备描述"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(location)
+            device_port = parsed.port or 80
+
+            resp = requests.get(location, timeout=5)
+            resp.encoding = resp.apparent_encoding or 'utf-8'
+            device = self._parse_device_description(
+                resp.text, ip, port=device_port)
+            if device:
+                # 检查设备是否应该被忽略（隐藏）
+                if self._should_ignore_device and self._should_ignore_device(device.id):
+                    logger.debug(f"Ignoring hidden device: {device.name} ({device.id})")
+                    return
+
+                with self._lock:
+                    if device.id not in self._devices:
+                        self._devices[device.id] = device
+                        logger.info(f"Found device via NOTIFY: {device.name} ({device.ip})")
+                        if self._on_device_found:
+                            self._on_device_found(device)
+                    else:
+                        # 更新已有设备的状态
+                        self._devices[device.id].status = "online"
+        except Exception as e:
+            logger.debug(f"Failed to fetch device from NOTIFY: {e}")
 
     def _notify_loop(self):
         """每 3 秒发送 NOTIFY 广播 — 与原始 Macast 的 Monitor 间隔一致"""
@@ -423,20 +486,29 @@ class SSDPService:
         threading.Thread(target=self._send_msearch, daemon=True).start()
 
     def _send_msearch(self):
-        message = (
-            "M-SEARCH * HTTP/1.1\r\n"
-            f"HOST: {SSDP_ADDR}:{SSDP_PORT}\r\n"
-            "MAN: \"ssdp:discover\"\r\n"
-            f"MX: {SSDP_MX}\r\n"
-            f"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
-            "\r\n"
-        )
+        # 搜索多种设备类型以提高发现率
+        search_types = [
+            "urn:schemas-upnp-org:device:MediaRenderer:1",
+            "urn:schemas-upnp-org:device:MediaRenderer:2",
+            "ssdp:all",
+        ]
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
             sock.settimeout(SSDP_MX + 1)
-            sock.sendto(message.encode(), (SSDP_ADDR, SSDP_PORT))
+
+            for st in search_types:
+                message = (
+                    "M-SEARCH * HTTP/1.1\r\n"
+                    f"HOST: {SSDP_ADDR}:{SSDP_PORT}\r\n"
+                    "MAN: \"ssdp:discover\"\r\n"
+                    f"MX: {SSDP_MX}\r\n"
+                    f"ST: {st}\r\n"
+                    "\r\n"
+                )
+                logger.info(f"Sending M-SEARCH for {st}")
+                sock.sendto(message.encode(), (SSDP_ADDR, SSDP_PORT))
 
             while self._running:
                 try:
@@ -469,9 +541,15 @@ class SSDPService:
 
         try:
             resp = requests.get(location, timeout=5)
+            resp.encoding = resp.apparent_encoding or 'utf-8'
             device = self._parse_device_description(
                 resp.text, addr[0], port=device_port)
             if device:
+                # 检查设备是否应该被忽略（隐藏）
+                if self._should_ignore_device and self._should_ignore_device(device.id):
+                    logger.debug(f"Ignoring hidden device: {device.name} ({device.id})")
+                    return
+
                 with self._lock:
                     self._devices[device.id] = device
                 logger.info(f"Found device: {device.name} ({device.ip})")
@@ -483,31 +561,71 @@ class SSDPService:
     def _parse_device_description(self, xml_text: str, ip: str,
                                   port: int = 8080) -> Optional[Device]:
         try:
-            root = etree.fromstring(xml_text.encode())
-            ns = {"upnp": "urn:schemas-upnp-org:device-1-0"}
-            device_elem = root.find(".//upnp:device", ns)
+            # 确保 XML 文本是字符串，然后编码为字节
+            if isinstance(xml_text, bytes):
+                xml_bytes = xml_text
+            else:
+                xml_bytes = xml_text.encode('utf-8', errors='replace')
+            root = etree.fromstring(xml_bytes)
+
+            # 尝试多种命名空间格式
+            ns_list = [
+                {"upnp": "urn:schemas-upnp-org:device-1-0"},
+                {"upnp": "urn:schemas-upnp-org:device-1-1"},
+                {},  # 无命名空间
+            ]
+
+            device_elem = None
+            active_ns = None
+            for ns in ns_list:
+                device_elem = root.find(".//upnp:device", ns) if ns else root.find(".//device")
+                if device_elem is not None:
+                    active_ns = ns
+                    break
+
             if device_elem is None:
+                # 尝试直接查找 deviceType 来判断是否是设备描述
+                device_type_elem = root.find(".//*[local-name()='deviceType']")
+                if device_type_elem is not None:
+                    device_elem = device_type_elem.getparent()
+                    active_ns = {}
+                else:
+                    logger.debug(f"No device element found in XML for {ip}")
+                    return None
+
+            def find_text(elem, tag, default=""):
+                """查找元素文本，支持带命名空间和不带命名空间"""
+                result = elem.findtext(f"upnp:{tag}", None, active_ns) if active_ns else None
+                if result is None:
+                    result = elem.findtext(tag, default)
+                return result or default
+
+            friendly_name = find_text(device_elem, "friendlyName")
+            model_name = find_text(device_elem, "modelName")
+            udn = find_text(device_elem, "UDN")
+
+            if not udn:
+                logger.debug(f"No UDN found for device at {ip}")
                 return None
 
-            friendly_name = device_elem.findtext("upnp:friendlyName", "", ns)
-            manufacturer = device_elem.findtext("upnp:manufacturer", "", ns)
-            model_name = device_elem.findtext("upnp:modelName", "", ns)
-            udn = device_elem.findtext("upnp:UDN", "", ns)
-
             device_type = "unknown"
-            type_str = device_elem.findtext("upnp:deviceType", "", ns)
+            type_str = find_text(device_elem, "deviceType")
             if "MediaRenderer" in type_str:
                 device_type = "tv"
             elif "Speaker" in type_str or "Audio" in type_str:
                 device_type = "speaker"
+            elif "MediaServer" in type_str:
+                device_type = "server"
+
+            logger.info(f"Parsed device: {friendly_name} ({device_type}) at {ip}:{port}")
 
             return Device(
                 id=udn, name=friendly_name, device_type=device_type,
                 ip=ip, port=port, status="online",
-                manufacturer=manufacturer, model_name=model_name, udn=udn,
+                model_name=model_name, udn=udn,
             )
         except Exception as e:
-            logger.debug(f"XML parse error: {e}")
+            logger.debug(f"XML parse error for {ip}: {e}")
             return None
 
     def get_devices(self) -> List[Device]:

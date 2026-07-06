@@ -1,4 +1,6 @@
 {
+  "common.cancel": "Cancel",
+  "common.confirm": "Confirm",
   "app.title": "Macast",
   "media.dragHint": "Drag media files here",
   "media.pasteHint": "or paste a media link",
@@ -13,7 +15,8 @@
   "devices.setDefault": "Set as Default",
   "devices.defaultBadge": "Default",
   "devices.rename": "Rename",
-  "devices.remove": "Remove",
+  "devices.remove": "Hide Device",
+  "devices.removeConfirm": "Hide {name}? It won't appear in future scans.",
   "devices.offline": "Offline",
   "devices.notApplicable": "N/A",
   "devices.multiRoomSync": "Multi-room",

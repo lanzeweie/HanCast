@@ -65,6 +65,14 @@ async fn remove_device(sidecar: State<'_, SidecarManager>, id: String) -> Result
     Ok(())
 }
 
+#[tauri::command]
+async fn hide_device(sidecar: State<'_, SidecarManager>, id: String) -> Result<(), String> {
+    sidecar
+        .send_command("hide_device", serde_json::json!({"id": id}))
+        .await?;
+    Ok(())
+}
+
 // ── Media parsing ──
 // Frontend has two separate commands; Python has one `parse_media` with type param.
 
@@ -187,17 +195,8 @@ async fn save_settings(
     Ok(())
 }
 
-/// 格式化托盘菜单中的投屏地址文本（URL 最多显示 15 字符，超出截断加省略号）
-fn format_cast_url_label(url: &str) -> String {
-    if url.is_empty() {
-        "复制当前投屏地址：（无）".to_string()
-    } else if url.chars().count() > 15 {
-        let truncated: String = url.chars().take(15).collect();
-        format!("复制当前投屏地址：{}…", truncated)
-    } else {
-        format!("复制当前投屏地址：{}", url)
-    }
-}
+/// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
+const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -234,11 +233,9 @@ pub fn run() {
             });
 
             // Build tray menu
-            let cast_url_item = MenuItemBuilder::with_id(
-                "copy_cast_url",
-                format_cast_url_label(""),
-            )
-            .build(app)?;
+            let cast_url_item = MenuItemBuilder::with_id("copy_cast_url", CAST_URL_LABEL)
+                .enabled(false)
+                .build(app)?;
             let show = MenuItemBuilder::with_id("show", "显示窗口")
                 .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出")
@@ -307,8 +304,9 @@ pub fn run() {
                         if let Some(tray) = app_handle.tray_by_id(&tray_id) {
                             let new_item = MenuItemBuilder::with_id(
                                 "copy_cast_url",
-                                format_cast_url_label(&new_url),
+                                CAST_URL_LABEL,
                             )
+                            .enabled(!new_url.is_empty())
                             .build(&app_handle)
                             .unwrap();
                             let show_item = MenuItemBuilder::with_id("show", "显示窗口")
@@ -339,6 +337,7 @@ pub fn run() {
             set_default_device,
             rename_device,
             remove_device,
+            hide_device,
             parse_media_file,
             parse_media_url,
             start_cast,

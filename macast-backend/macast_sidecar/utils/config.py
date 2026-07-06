@@ -119,3 +119,30 @@ class Config:
             self.usn = str(uuid.uuid4())
             self.settings['usn'] = self.usn
         return self.usn
+
+    # ── 设备隐藏管理 ──
+
+    @property
+    def hidden_devices(self) -> List[str]:
+        """获取隐藏设备列表（UDN 列表）"""
+        return self.settings.get('hidden_devices', [])
+
+    def hide_device(self, device_udn: str):
+        """将设备加入隐藏列表（幂等）"""
+        hidden = self.hidden_devices
+        if device_udn not in hidden:
+            hidden.append(device_udn)
+            self.settings['hidden_devices'] = hidden
+            logger.info(f"Device hidden: {device_udn}")
+
+    def unhide_device(self, device_udn: str):
+        """从隐藏列表移除设备（幂等）"""
+        hidden = self.hidden_devices
+        if device_udn in hidden:
+            hidden.remove(device_udn)
+            self.settings['hidden_devices'] = hidden
+            logger.info(f"Device unhidden: {device_udn}")
+
+    def is_device_hidden(self, device_udn: str) -> bool:
+        """检查设备是否被隐藏"""
+        return device_udn in self.hidden_devices

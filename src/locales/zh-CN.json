@@ -1,4 +1,6 @@
 {
+  "common.cancel": "取消",
+  "common.confirm": "确定",
   "app.title": "Macast",
   "media.dragHint": "拖拽媒体文件到此处",
   "media.pasteHint": "或粘贴媒体链接",
@@ -13,7 +15,8 @@
   "devices.setDefault": "设为默认设备",
   "devices.defaultBadge": "默认设备",
   "devices.rename": "重命名",
-  "devices.remove": "移除设备",
+  "devices.remove": "隐藏设备",
+  "devices.removeConfirm": "确定要隐藏 {name} 吗？隐藏后下次扫描不再显示。",
   "devices.offline": "离线",
   "devices.notApplicable": "不适用",
   "devices.multiRoomSync": "多房同步",

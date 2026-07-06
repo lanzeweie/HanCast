@@ -14,6 +14,12 @@ import signal
 from .commands import CommandHandler
 from .utils.logger import setup_logger
 
+# Windows 下强制 stdout/stderr 使用 UTF-8 编码
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 logger = setup_logger("macast.sidecar", level=logging.INFO)
 
 

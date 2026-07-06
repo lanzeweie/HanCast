@@ -158,6 +158,11 @@ export async function removeDevice(id: string): Promise<void> {
   await invoke('remove_device', { id })
 }
 
+export async function hideDevice(id: string): Promise<void> {
+  const invoke = await initInvoke()
+  await invoke('hide_device', { id })
+}
+
 // Media parsing
 export async function parseMediaFile(filePath: string): Promise<MediaInfo> {
   const invoke = await initInvoke()

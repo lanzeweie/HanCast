@@ -144,14 +144,38 @@ class SSDPService:
         if not interfaces:
             interfaces.append((self._ip, '255.255.255.0'))
 
-        # Windows: 添加 ICS 热点网段 (192.168.137.1)
+        # Windows: 尝试添加 ICS 热点网段 (192.168.137.1)
+        # 只有在该地址实际可用时才添加
         if sys.platform == 'win32':
             has_ics = any(ip == '192.168.137.1' for ip, _ in interfaces)
             if not has_ics:
-                interfaces.append(('192.168.137.1', '255.255.255.0'))
+                try:
+                    # 验证 IP 是否可用（检查是否绑定了该接口）
+                    test_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    test_sock.bind(('192.168.137.1', 0))
+                    test_sock.close()
+                    interfaces.append(('192.168.137.1', '255.255.255.0'))
+                    logger.info("ICS interface 192.168.137.1 available")
+                except (socket.error, OSError):
+                    logger.debug("ICS interface 192.168.137.1 not available, skip")
 
-        logger.info(f"SSDP interfaces: {interfaces}")
-        return interfaces
+        # 过滤掉无效的接口（验证每个 IP 是否可以绑定）
+        valid_interfaces = []
+        for ip, mask in interfaces:
+            try:
+                test_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                test_sock.bind((ip, 0))
+                test_sock.close()
+                valid_interfaces.append((ip, mask))
+            except (socket.error, OSError):
+                logger.warning(f"Interface {ip} not available, skipping")
+
+        if not valid_interfaces:
+            # 所有接口都无效，使用默认 IP
+            valid_interfaces.append((self._ip, '255.255.255.0'))
+
+        logger.info(f"SSDP interfaces: {valid_interfaces}")
+        return valid_interfaces
 
     def set_callbacks(self, on_device_found=None, on_device_lost=None,
                       should_ignore_device=None):
@@ -250,8 +274,13 @@ class SSDPService:
                 self.sock.setsockopt(
                     socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
                 self.sock_list.append(Sock(ip))
+                logger.info(f"Added multicast membership for {ip}")
             except Exception as e:
-                logger.error(e)
+                logger.warning(f"Failed to add membership for {ip}: {e}")
+
+        if not self.sock_list:
+            logger.error("No valid network interfaces found!")
+            return
 
         try:
             self.sock.bind(('0.0.0.0', SSDP_PORT))

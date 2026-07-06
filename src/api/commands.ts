@@ -112,19 +112,30 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       return MOCK_CAST_STATE as T
     case 'get_settings':
       return MOCK_SETTINGS as T
-    case 'parse_media_file':
+    case 'parse_media_file': {
+      const fp = String(args?.filePath ?? '')
+      const name = fp.split(/[/\\]/).pop() ?? 'Unknown'
+      const ext = name.split('.').pop()?.toLowerCase() ?? ''
+      const mimeMap: Record<string, string> = {
+        mp4: 'video/mp4', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
+        mov: 'video/quicktime', webm: 'video/webm', flv: 'video/x-flv',
+        mp3: 'audio/mpeg', flac: 'audio/flac', wav: 'audio/wav',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+      }
       return {
-        type: 'file',
-        uri: args?.file_path ?? '',
-        title: String(args?.file_path ?? '').split(/[/\\]/).pop() ?? 'Unknown',
-        mime_type: 'video/mp4',
+        media_type: 'file',
+        uri: fp,
+        title: name,
+        mime_type: mimeMap[ext] ?? 'application/octet-stream',
         file_size: 1024 * 1024 * 50,
         duration: null,
         thumbnail: null,
       } as T
+    }
     case 'parse_media_url':
       return {
-        type: 'url',
+        media_type: 'url',
         uri: args?.url ?? '',
         title: String(args?.url ?? '').split('/').pop() ?? 'Unknown',
         mime_type: 'video/mp4',

@@ -29,6 +29,7 @@ impl SidecarManager {
             .shell()
             .command("uv")
             .args(["run", "python", "-m", "macast_sidecar.main"])
+            .env("PYTHONIOENCODING", "utf-8")
             .current_dir("../macast-backend")
             .spawn()
             .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;

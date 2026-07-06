@@ -13,6 +13,28 @@ const castStore = useCastStore()
 const isDragOver = ref(false)
 const pickerError = ref<string | null>(null)
 
+// ── Media preview URL (asset:// protocol) ──
+
+let convertFileSrc: ((filePath: string, protocol?: string) => string) | null = null
+
+const mediaPreviewUrl = computed(() => {
+  const info = mediaStore.mediaInfo
+  if (!info) return null
+  // Local file in Tauri → asset:// URL
+  if (inTauri && info.media_type === 'file' && convertFileSrc) {
+    return convertFileSrc(info.uri)
+  }
+  // Local file in browser → blob URL from File object
+  if (!inTauri && info.media_type === 'file' && mediaStore.localFile) {
+    return URL.createObjectURL(mediaStore.localFile)
+  }
+  // Remote URL → use directly
+  if (info.media_type === 'url') {
+    return info.uri
+  }
+  return null
+})
+
 // ── Media type detection ──
 
 type MediaCategory = 'video' | 'image' | 'audio' | 'link'
@@ -121,23 +143,30 @@ function onHtmlDrop(e: DragEvent) {
   mediaStore.clearDragOver()
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    const file = files[0]
-    // @ts-expect-error Tauri 1.x path injection
-    const path = file.path || file.name
-    mediaStore.parseFile(path)
+    mediaStore.parseFile(files[0])
   }
 }
 
 onMounted(async () => {
+  // Step 1: Detect Tauri runtime (independent of drag-drop)
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      const core = await import('@tauri-apps/api/core')
+      convertFileSrc = core.convertFileSrc
+      inTauri = true
+      console.log('[MediaInput] Tauri runtime detected')
+    } catch {
+      // Module load failed
+    }
+  }
+
+  // Step 2: Register drag-drop listener (may fail independently)
   try {
-    // Tauri 2.0: drag-drop events are on the Webview, not the Window
     const { getCurrentWebview } = await import('@tauri-apps/api/webview')
     const webview = getCurrentWebview()
-    inTauri = true
-    console.log('[MediaInput] Tauri detected, registering drag-drop on webview...')
 
     unlistenDrag = await webview.onDragDropEvent((event) => {
-      console.log('[MediaInput] drag-drop:', event.payload.type, JSON.stringify(event.payload))
+      console.log('[MediaInput] drag-drop:', event.payload.type)
       if (event.payload.type === 'enter' || event.payload.type === 'over') {
         isDragOver.value = true
         mediaStore.setDragOver()
@@ -145,9 +174,7 @@ onMounted(async () => {
         isDragOver.value = false
         mediaStore.clearDragOver()
         const paths = event.payload.paths
-        console.log('[MediaInput] dropped paths:', paths)
         if (paths && paths.length > 0) {
-          console.log('[MediaInput] parsing file:', paths[0])
           mediaStore.parseFile(paths[0])
         }
       } else {
@@ -155,9 +182,9 @@ onMounted(async () => {
         mediaStore.clearDragOver()
       }
     })
-    console.log('[MediaInput] drag-drop listener registered on webview')
+    console.log('[MediaInput] drag-drop listener registered')
   } catch (err) {
-    console.warn('[MediaInput] Not in Tauri, using HTML5 drag-drop fallback:', err)
+    console.warn('[MediaInput] drag-drop not available:', err)
   }
 })
 
@@ -179,6 +206,10 @@ function onPasteFromClipboard() {
 async function onParse() {
   await mediaStore.parseUrl()
 }
+
+const hasTarget = computed(() => {
+  return !!(deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.status === 'online'))
+})
 
 async function onCast() {
   const device = deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.status === 'online')
@@ -225,8 +256,7 @@ function onFileSelected(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (file) {
-    // Browser mode: only have filename, not full path
-    mediaStore.parseFile(file.name)
+    mediaStore.parseFile(file)
   }
 }
 </script>
@@ -292,25 +322,42 @@ function onFileSelected(e: Event) {
         </svg>
       </button>
 
-      <div class="media-input__preview-body">
-        <span class="media-input__preview-icon">{{ categoryIcon }}</span>
-        <div class="media-input__preview-text">
+      <!-- Left: preview thumbnail -->
+      <div class="media-input__preview-left">
+        <img
+          v-if="mediaPreviewUrl && mediaCategory === 'image'"
+          :src="mediaPreviewUrl"
+          class="media-input__thumb"
+          :alt="mediaStore.mediaInfo?.title"
+        />
+        <video
+          v-else-if="mediaPreviewUrl && mediaCategory === 'video'"
+          :src="mediaPreviewUrl"
+          class="media-input__thumb"
+          preload="metadata"
+          muted
+        />
+        <span v-else class="media-input__preview-icon">{{ categoryIcon }}</span>
+      </div>
+
+      <!-- Right: info + actions -->
+      <div class="media-input__preview-right">
+        <div class="media-input__preview-info">
           <span class="media-input__preview-title">{{ mediaStore.mediaInfo?.title }}</span>
           <span class="media-input__preview-sub">{{ mediaSubtitle }}</span>
         </div>
+        <button
+          class="media-input__cast-btn"
+          @click="onCast"
+          :disabled="castStore.loading || !hasTarget"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 16.1A5 5 0 015.9 20M2 12.05A9 9 0 019.95 20M2 8V6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2h-6" />
+            <circle cx="2" cy="20" r="1" fill="currentColor" />
+          </svg>
+          {{ t('devices.cast') }}
+        </button>
       </div>
-
-      <button
-        class="media-input__cast-btn"
-        @click="onCast"
-        :disabled="castStore.loading"
-      >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M2 16.1A5 5 0 015.9 20M2 12.05A9 9 0 019.95 20M2 8V6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2h-6" />
-          <circle cx="2" cy="20" r="1" fill="currentColor" />
-        </svg>
-        {{ t('devices.cast') }}
-      </button>
     </div>
 
     <!-- ═══ URL Input Bar (hidden when ready) ═══ -->
@@ -429,10 +476,10 @@ function onFileSelected(e: Event) {
 /* ── Preview Card ── */
 .media-input__preview {
   display: flex;
-  flex-direction: column;
   gap: var(--sp-md);
   width: 100%;
   position: relative;
+  align-items: stretch;
 }
 
 .media-input__clear {
@@ -447,6 +494,7 @@ function onFileSelected(e: Event) {
   border-radius: var(--r-full);
   color: var(--text-tertiary);
   transition: all var(--transition-fast);
+  z-index: 1;
 }
 
 .media-input__clear:hover {
@@ -454,25 +502,47 @@ function onFileSelected(e: Event) {
   color: var(--text-primary);
 }
 
-.media-input__preview-body {
+/* Left: preview thumbnail */
+.media-input__preview-left {
+  flex-shrink: 0;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--bg-input);
   display: flex;
   align-items: center;
-  gap: var(--sp-md);
-  min-width: 0;
+  justify-content: center;
 }
 
 .media-input__preview-icon {
-  font-size: 32px;
+  font-size: 36px;
   line-height: 1;
-  flex-shrink: 0;
 }
 
-.media-input__preview-text {
+.media-input__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Right: info + actions */
+.media-input__preview-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--sp-sm);
+  padding-right: 24px;
+}
+
+.media-input__preview-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1;
 }
 
 .media-input__preview-title {
@@ -499,8 +569,8 @@ function onFileSelected(e: Event) {
   justify-content: center;
   gap: var(--sp-sm);
   width: 100%;
-  padding: 10px 20px;
-  font-size: 14px;
+  padding: 8px 18px;
+  font-size: 13px;
   font-weight: 500;
   color: white;
   background: var(--primary);
@@ -513,7 +583,8 @@ function onFileSelected(e: Event) {
 }
 
 .media-input__cast-btn:disabled {
-  opacity: 0.5;
+  background: var(--border);
+  color: var(--text-tertiary);
   cursor: not-allowed;
 }
 

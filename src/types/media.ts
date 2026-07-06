@@ -1,5 +1,5 @@
 export interface MediaInfo {
-  type: 'file' | 'url'
+  media_type: 'file' | 'url'
   uri: string
   title: string
   duration: number | null

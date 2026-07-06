@@ -2,10 +2,14 @@
 命令路由 - 将 Sidecar 命令分发到对应模块
 """
 
+import os
+import sys
+import json
 import logging
 from typing import Any, Dict
 from .ssdp import SSDPService
 from .protocol.dlna import DLNAProtocol
+from .protocol.server import DLNAServer
 from .renderer.mpv import MPVRenderer
 from .media.parser import MediaParser
 from .media.server import MediaServer
@@ -17,15 +21,79 @@ from .utils.config import Config
 logger = logging.getLogger("macast.commands")
 
 
+def find_mpv_path() -> str:
+    """查找 MPV 可执行文件路径"""
+    # 1. 检查环境变量
+    mpv_path = os.environ.get("MPV_PATH")
+    if mpv_path and os.path.exists(mpv_path):
+        return mpv_path
+
+    # 2. 检查项目目录下的 mpv
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 打包后的路径
+        base_path = sys._MEIPASS
+    else:
+        # 开发环境路径 - macast-backend 的父目录
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    # Windows
+    if os.name == 'nt':
+        project_mpv = os.path.join(base_path, 'mpv', 'mpv.exe')
+        if os.path.exists(project_mpv):
+            return os.path.abspath(project_mpv)
+    else:
+        # macOS / Linux
+        project_mpv = os.path.join(base_path, 'mpv', 'mpv')
+        if os.path.exists(project_mpv):
+            return os.path.abspath(project_mpv)
+
+    # 3. 默认使用系统 PATH 中的 mpv
+    return "mpv"
+
+
 class CommandHandler:
+    def _get_local_ip(self) -> str:
+        """获取本机 IP"""
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return "127.0.0.1"
+
     def __init__(self):
         self.config = Config()
-        self.ssdp = SSDPService()
         self.protocol = DLNAProtocol()
-        self.renderer = MPVRenderer()
+
+        # 查找 MPV 路径
+        mpv_path = find_mpv_path()
+        logger.info(f"MPV path: {mpv_path}")
+        self.renderer = MPVRenderer(path=mpv_path)
+
         self.media_parser = MediaParser()
         self.media_server = MediaServer()
         self.cast_state = CastState()
+
+        # DLNA 描述服务器
+        friendly_name = self.config.get_friendly_name()
+        device_usn = f"uuid:{self.config.get_usn()}"
+        self.dlna_server = DLNAServer(
+            friendly_name=friendly_name,
+            usn=device_usn,
+            ip=self._get_local_ip(),
+            port=8080
+        )
+        self.dlna_server.set_command_handler(self)
+
+        # SSDP 服务 (端口会在 _start_services 中更新)
+        self.ssdp = SSDPService(
+            friendly_name=friendly_name,
+            port=8080,
+            usn=device_usn
+        )
 
         # 注册命令
         self._commands: Dict[str, callable] = {
@@ -64,8 +132,30 @@ class CommandHandler:
 
     def _start_services(self):
         """启动 SSDP 和媒体服务器"""
+        # 启动 DLNA 描述服务器
+        self.dlna_server.start()
+
+        # 更新 SSDP 的端口 (DLNA 服务器可能使用了不同的端口)
+        self.ssdp._port = self.dlna_server.get_port()
+
+        # 启动 SSDP 服务 (内部会调用 _register)
         self.ssdp.start()
+
+        # 启动媒体服务器
         self.media_server.start(port=self.config.media_port)
+
+        # 连接 Protocol ↔ Renderer
+        # Protocol 需要调用 Renderer 播放媒体
+        # Renderer 需要回调 Protocol 更新状态
+        self.protocol.set_renderer(self.renderer)
+        self.renderer.set_protocol(self.protocol)
+
+        # 启动 DLNA 协议事件线程 (发送状态变化通知给订阅的客户端)
+        self.protocol.start()
+
+        # 启动 MPV 渲染器
+        self.renderer.start()
+        logger.info("MPV renderer started")
 
     def execute(self, cmd: str, params: Dict[str, Any]) -> Any:
         """执行命令"""
@@ -76,6 +166,7 @@ class CommandHandler:
     def cleanup(self):
         """清理资源"""
         self.ssdp.stop()
+        self.dlna_server.stop()
         self.media_server.stop()
         self.renderer.stop()
         self.protocol.stop_event_thread()
@@ -181,6 +272,3 @@ class CommandHandler:
         settings = params["settings"]
         self.config.update(settings)
         self.config.save()
-
-
-import json

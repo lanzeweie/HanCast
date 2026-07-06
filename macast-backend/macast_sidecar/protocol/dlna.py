@@ -121,6 +121,7 @@ class DLNAProtocol:
     def __init__(self):
         self._device: Optional[Device] = None
         self._control_url: Optional[str] = None
+        self._renderer = None  # 渲染器引用，由 set_renderer() 设置
         self.running = False
         self.state_list = {}
         self.action_list = {}
@@ -143,6 +144,18 @@ class DLNAProtocol:
         """设置回调函数"""
         self._on_state_change = on_state_change
 
+    def set_renderer(self, renderer):
+        """设置渲染器引用
+
+        SOAP 处理方法需要通过此引用调用 MPV 播放器。
+        原版 Macast 通过 cherrypy.engine.publish('get_renderer') 获取渲染器，
+        新版改为直接引用。
+        """
+        self._renderer = renderer
+        # 将 protocol 自身设置到 renderer，使 renderer 状态变化能回调到 protocol
+        if renderer:
+            renderer.set_protocol(self)
+
     def init_state(self):
         """初始化状态"""
         self.set_state('CurrentPlayMode', 'NORMAL')
@@ -153,6 +166,48 @@ class DLNAProtocol:
         self.set_state('A_ARG_TYPE_Direction', 'Output')
         self.set_state('CurrentConnectionIDs', '0')
         self.set_state('PlaybackStorageMedium', 'None')
+        # 加载 SinkProtocolInfo — 告诉 DLNA 控制器支持哪些媒体格式
+        # 缺失此初始化会导致 GetProtocolInfo 返回空列表，控制器可能拒绝设备
+        self._load_sink_protocol_info()
+
+    def _load_sink_protocol_info(self):
+        """加载 SinkProtocolInfo — 媒体格式支持列表
+
+        从 SinkProtocolInfo.csv 读取支持的媒体格式，设置到状态变量中。
+        DLNA 控制器通过 ConnectionManager.GetProtocolInfo 查询此列表，
+        以确定设备支持哪些媒体格式。如果返回空列表，控制器可能认为
+        设备不支持任何媒体而拒绝投屏。
+        """
+        import os
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'xml', 'SinkProtocolInfo.csv')
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                protocol_info = f.read().strip()
+            self.set_state('SinkProtocolInfo', protocol_info)
+            logger.info(f"Loaded SinkProtocolInfo: {len(protocol_info)} chars")
+        except FileNotFoundError:
+            # 回退：使用基本的媒体格式列表
+            fallback = ','.join([
+                'http-get:*:video/mp4:*',
+                'http-get:*:video/x-matroska:*',
+                'http-get:*:video/webm:*',
+                'http-get:*:video/mpeg:*',
+                'http-get:*:video/mpeg4:*',
+                'http-get:*:video/avi:*',
+                'http-get:*:video/x-flv:*',
+                'http-get:*:video/quicktime:*',
+                'http-get:*:audio/mpeg:*',
+                'http-get:*:audio/mp4:*',
+                'http-get:*:audio/x-flac:*',
+                'http-get:*:audio/ogg:*',
+                'http-get:*:audio/wav:*',
+                'http-get:*:image/jpeg:*',
+                'http-get:*:image/png:*',
+                'http-get:*:image/gif:*',
+            ])
+            self.set_state('SinkProtocolInfo', fallback)
+            logger.warning(f"SinkProtocolInfo.csv not found, using fallback: {csv_path}")
 
     def init_services(self, xml_dir: str = None):
         """初始化服务"""
@@ -425,6 +480,21 @@ class DLNAProtocol:
             logger.info(f"{method} {param}")
         res = {}
         service_type = Service.get(service)
+        if action not in service_type.actions:
+            logger.warning(f"Unknown action: {service}.{action}")
+            # 返回 SOAP Fault 而不是崩溃
+            ns = 'http://schemas.xmlsoap.org/soap/envelope/'
+            ns_upnp = 'urn:schemas-upnp-org:control-1-0'
+            root = etree.Element(etree.QName(ns, 'Envelope'), nsmap={'s': ns})
+            body = etree.SubElement(root, etree.QName(ns, 'Body'), nsmap={'s': ns})
+            fault = etree.SubElement(body, etree.QName(ns, 'Fault'))
+            etree.SubElement(fault, 'faultcode').text = 's:Client'
+            etree.SubElement(fault, 'faultstring').text = 'UPnPError'
+            detail = etree.SubElement(fault, 'detail')
+            upnp_error = etree.SubElement(detail, etree.QName(ns_upnp, 'UPnPError'))
+            etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorCode')).text = '401'
+            etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorDescription')).text = f'Invalid action: {action}'
+            return etree.tostring(root, encoding="UTF-8", xml_declaration=False)
         if hasattr(self, method):
             data = {}
             input = service_type.actions[action].input
@@ -498,20 +568,23 @@ class DLNAProtocol:
     # The following method names are defined by the XML file
 
     def RenderingControl_SetVolume(self, data):
-        volume = data['DesiredVolume']
+        volume = int(data['DesiredVolume'].value)
+        logger.info(f"SetVolume: {volume}")
+        if self._renderer:
+            self._renderer.set_media_volume(volume)
         return {}
 
     def RenderingControl_SetMute(self, data):
         mute = data['DesiredMute']
-        if mute.value == 0 or mute.value == '0':
-            mute = False
-        else:
-            mute = True
+        mute_val = mute.value == 1 or mute.value == '1'
+        logger.info(f"SetMute: {mute_val}")
+        if self._renderer:
+            self._renderer.set_media_mute(mute_val)
         return {}
 
     def AVTransport_SetAVTransportURI(self, data):
         uri = data['CurrentURI'].value
-        logger.info(uri)
+        logger.info(f"SetAVTransportURI: {uri}")
         self.set_state_url(uri)
         title = "Macast"
         try:
@@ -532,24 +605,40 @@ class DLNAProtocol:
         self.set_state('AbsoluteTimePosition', '00:00:00')
         self.set_state('TransportState', 'PAUSED_PLAYBACK')
         self.set_state('TransportStatus', 'OK')
+        # 调用渲染器加载媒体
+        if self._renderer:
+            self._renderer.set_media_url(uri)
+            self._renderer.set_media_title(title)
         return {}
 
     def AVTransport_Play(self, data):
+        logger.info("Play")
+        if self._renderer:
+            self._renderer.set_media_resume()
         self.set_state('TransportState', 'PLAYING')
         self.set_state('TransportStatus', 'OK')
         return {}
 
     def AVTransport_Pause(self, data):
+        logger.info("Pause")
+        if self._renderer:
+            self._renderer.set_media_pause()
         self.set_state('TransportState', 'PAUSED_PLAYBACK')
         return {}
 
     def AVTransport_Seek(self, data):
         target = data['Target']
+        logger.info(f"Seek: {target.value}")
+        if self._renderer:
+            self._renderer.set_media_position(target.value)
         self.set_state('RelativeTimePosition', target.value)
         self.set_state('AbsoluteTimePosition', target.value)
         return {}
 
     def AVTransport_Stop(self, data):
+        logger.info("Stop")
+        if self._renderer:
+            self._renderer.set_media_stop()
         self.set_state('TransportState', 'STOPPED')
         return {}
 
@@ -646,6 +735,8 @@ class DLNAProtocol:
                 if 'AVTransport' in service_type:
                     control_url = service.findtext('upnp:controlURL', '', ns)
                     if control_url:
+                        if not control_url.startswith('/'):
+                            control_url = '/' + control_url
                         self._control_url = f"http://{self._device.ip}:{self._device.port}{control_url}"
                         logger.info(f"Control URL: {self._control_url}")
                         break

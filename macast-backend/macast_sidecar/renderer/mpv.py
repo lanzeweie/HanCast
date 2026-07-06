@@ -83,9 +83,10 @@ class MPVRenderer(Renderer):
 
     def set_media_url(self, url, start="0"):
         """ data : string """
-        options = {'start': start}
-        self.send_command(['loadfile', url, 'replace',
-                           ','.join([f'{i}={options[i]}' for i in options])])
+        if start and start != "0":
+            self.send_command(['loadfile', url, 'replace', f'start={start}'])
+        else:
+            self.send_command(['loadfile', url, 'replace'])
 
     def set_media_title(self, data):
         """ data : string """

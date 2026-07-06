@@ -22,6 +22,22 @@ class MediaHandler(BaseHTTPRequestHandler):
 
     served_files: Dict[str, str] = {}  # url_path → file_path
 
+    def do_HEAD(self):
+        """处理 HEAD 请求 (DLNA 设备用来探测文件)"""
+        file_path = self.served_files.get(self.path)
+        if not file_path or not os.path.exists(file_path):
+            self.send_error(404)
+            return
+
+        file_size = os.path.getsize(file_path)
+        mime_type = self._guess_mime(file_path)
+
+        self.send_response(200)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Length", str(file_size))
+        self.send_header("Accept-Ranges", "bytes")
+        self.end_headers()
+
     def do_GET(self):
         file_path = self.served_files.get(self.path)
         if not file_path or not os.path.exists(file_path):
@@ -90,12 +106,26 @@ class MediaHandler(BaseHTTPRequestHandler):
 class MediaServer:
     """媒体文件 HTTP 服务器"""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 0):
+    def __init__(self, host: str = "0.0.0.0", port: int = 0, lan_ip: str = None):
         self.host = host
         self.port = port
         self._server: HTTPServer = None
         self._thread: threading.Thread = None
         self._served: Dict[str, str] = {}
+        self._lan_ip = lan_ip or self._get_local_ip()
+
+    @staticmethod
+    def _get_local_ip() -> str:
+        """获取本机局域网 IP"""
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
 
     def start(self, port: int = 0):
         """启动服务器"""
@@ -122,7 +152,7 @@ class MediaServer:
         MediaHandler.served_files[url_path] = file_path
         self._served[url_path] = file_path
 
-        return f"http://127.0.0.1:{self.port}{url_path}"
+        return f"http://{self._lan_ip}:{self.port}{url_path}"
 
     def get_file(self, file_id: str) -> Tuple[str, int, str]:
         """获取文件信息"""

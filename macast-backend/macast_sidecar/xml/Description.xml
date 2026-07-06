@@ -8,7 +8,7 @@
     </specVersion>
     <device>
         <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
-        <UDN>uuid:{uuid}</UDN>
+        <UDN>{uuid}</UDN>
         <friendlyName>{friendly_name}</friendlyName>
         <manufacturer>{manufacturer}</manufacturer>
         <manufacturerURL>{manufacturer_url}</manufacturerURL>

@@ -9,6 +9,11 @@
   "media.parse": "解析 / 准备",
   "media.ready": "就绪，等待投屏",
   "media.parsing": "解析中...",
+  "media.clear": "清除",
+  "media.video": "视频",
+  "media.image": "图片",
+  "media.audio": "音频",
+  "media.link": "链接",
   "devices.title": "局域网设备",
   "devices.refresh": "刷新",
   "devices.cast": "投屏",
@@ -43,5 +48,7 @@
   "cast.playing": "播放中",
   "cast.paused": "已暂停",
   "cast.error": "出错了",
-  "cast.stop": "停止投屏"
+  "cast.stop": "停止投屏",
+  "cast.play": "播放",
+  "cast.pause": "暂停"
 }

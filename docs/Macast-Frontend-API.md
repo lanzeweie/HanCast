@@ -212,7 +212,7 @@ await invoke('rename_device', { id: device_id, name: '客厅电视' });
 
 #### `remove_device(device_id: string)`
 
-移除设备。
+移除设备（从当前列表移除，下次扫描可能重新出现）。
 
 ```typescript
 await invoke('remove_device', { id: device_id });
@@ -224,6 +224,62 @@ await invoke('remove_device', { id: device_id });
 | `id` | `string` | 设备 ID |
 
 **返回值**: `null`
+
+---
+
+#### `hide_device(device_id: string)`
+
+隐藏设备（加入隐藏列表，后续扫描不再显示）。
+
+```typescript
+await invoke('hide_device', { id: device_id });
+```
+
+**参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 设备 UDN |
+
+**返回值**: `null`
+
+**说明**: 隐藏的设备会持久化存储，应用重启后仍然生效。与 `remove_device` 不同，`hide_device` 会阻止设备在后续 SSDP 扫描中被重新发现。
+
+---
+
+#### `unhide_device(device_id: string)`
+
+取消隐藏设备（从隐藏列表移除）。
+
+```typescript
+await invoke('unhide_device', { id: device_id });
+```
+
+**参数**:
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `id` | `string` | 设备 UDN |
+
+**返回值**: `null`
+
+---
+
+#### `get_hidden_devices()`
+
+获取当前隐藏的设备 UDN 列表。
+
+```typescript
+const hiddenDevices: string[] = await invoke('get_hidden_devices');
+```
+
+**参数**: 无
+
+**返回值**: `string[]` — 隐藏设备的 UDN 列表
+
+**示例**:
+```typescript
+const hidden = await invoke('get_hidden_devices');
+console.log(`当前隐藏了 ${hidden.length} 个设备`);
+```
 
 ---
 
@@ -952,6 +1008,9 @@ export interface CastErrorEvent {
 | `set_default_device(device_id)` | `{ id: string }` | `null` | 设置默认设备 |
 | `rename_device(device_id, name)` | `{ id, name }` | `null` | 重命名设备 |
 | `remove_device(device_id)` | `{ id: string }` | `null` | 移除设备 |
+| `hide_device(device_id)` | `{ id: string }` | `null` | 隐藏设备 |
+| `unhide_device(device_id)` | `{ id: string }` | `null` | 取消隐藏 |
+| `get_hidden_devices()` | - | `string[]` | 获取隐藏列表 |
 | `start_cast(device_id, media_uri)` | `{ device_id, media_uri }` | `null` | 开始投屏 |
 | `stop_cast()` | - | `null` | 停止投屏 |
 | `pause_cast()` | - | `null` | 暂停投屏 |

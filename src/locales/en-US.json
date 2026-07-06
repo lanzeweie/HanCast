@@ -43,5 +43,7 @@
   "cast.playing": "Playing",
   "cast.paused": "Paused",
   "cast.error": "Error",
-  "cast.stop": "Stop Casting"
+  "cast.stop": "Stop Casting",
+  "cast.play": "Play",
+  "cast.pause": "Pause"
 }

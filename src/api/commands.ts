@@ -4,7 +4,7 @@
  */
 import type { Device } from '@/types/device'
 import type { MediaInfo } from '@/types/media'
-import type { CastState } from '@/types/cast'
+import type { CastState, CastUrlInfo } from '@/types/cast'
 import type { AppSettings } from '@/types/settings'
 
 // ── Helpers ──
@@ -14,8 +14,13 @@ let invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
 async function initInvoke() {
   if (invoke) return invoke
   try {
-    const core = await import('@tauri-apps/api/core')
-    invoke = core.invoke
+    // Check if Tauri runtime is actually available (not just the module)
+    if (window.__TAURI_INTERNALS__?.metadata) {
+      const core = await import('@tauri-apps/api/core')
+      invoke = core.invoke
+    } else {
+      invoke = mockInvoke as unknown as typeof invoke
+    }
   } catch {
     // Running outside Tauri (e.g. browser dev), use mock fallback
     invoke = mockInvoke as unknown as typeof invoke
@@ -92,6 +97,8 @@ const MOCK_CAST_STATE: CastState = {
   position: 0,
   volume: 80,
   is_muted: false,
+  positionTime: '00:00:00',
+  durationTime: '00:00:00',
 }
 
 async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -124,6 +131,14 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         file_size: null,
         duration: null,
         thumbnail: null,
+      } as T
+    case 'get_cast_url':
+      return {
+        url: 'http://example.com/video.mp4',
+        title: 'Sample Video',
+        duration: '00:05:30',
+        position: '00:02:15',
+        status: 'PLAYING',
       } as T
     default:
       return {} as T
@@ -166,7 +181,7 @@ export async function hideDevice(id: string): Promise<void> {
 // Media parsing
 export async function parseMediaFile(filePath: string): Promise<MediaInfo> {
   const invoke = await initInvoke()
-  return invoke<MediaInfo>('parse_media_file', { file_path: filePath })
+  return invoke<MediaInfo>('parse_media_file', { filePath })
 }
 
 export async function parseMediaUrl(url: string): Promise<MediaInfo> {
@@ -177,7 +192,7 @@ export async function parseMediaUrl(url: string): Promise<MediaInfo> {
 // Cast control
 export async function startCast(deviceId: string, mediaUri: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('start_cast', { device_id: deviceId, media_uri: mediaUri })
+  await invoke('start_cast', { deviceId, mediaUri })
 }
 
 export async function stopCast(): Promise<void> {
@@ -203,6 +218,11 @@ export async function seekCast(position: string): Promise<void> {
 export async function getCastState(): Promise<CastState> {
   const invoke = await initInvoke()
   return invoke<CastState>('get_cast_state')
+}
+
+export async function getCastUrl(): Promise<CastUrlInfo> {
+  const invoke = await initInvoke()
+  return invoke<CastUrlInfo>('get_cast_url')
 }
 
 export async function setVolume(volume: number): Promise<void> {

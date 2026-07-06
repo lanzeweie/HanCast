@@ -203,6 +203,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| {
             if event.id() == "show" {
                 if let Some(window) = app.get_webview_window("main") {

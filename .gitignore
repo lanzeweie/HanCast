@@ -65,6 +65,11 @@ _bmad/
 _bmad-output/
 .claude/skills/
 .claude/plans/
-
+.claude/
 # ── 原始参考代码 (仅参考，不纳入主项目) ──
 Macast-main/
+
+# ── MPV 播放器 (外部依赖，不纳入版本控制) ──
+mpv/
+
+.understand-anything/

@@ -328,7 +328,7 @@ wheels = [
 ]
 
 [[package]]
-name = "macast-sidecar"
+name = "macast-han-sidecar"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [

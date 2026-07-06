@@ -57,13 +57,13 @@ Macast-Han/
 ├── src-tauri/              # Rust Tauri 壳层
 │   ├── src/
 │   │   ├── main.rs         # 入口
-│   │   ├── lib.rs          # Tauri 命令 (16 个)
+│   │   ├── lib.rs          # Tauri 命令 (20 个)
 │   │   └── sidecar.rs      # SidecarManager (Rust ↔ Python)
 │   └── Cargo.toml
 ├── macast-backend/         # Python 后端
 │   └── macast_sidecar/
 │       ├── main.py         # Sidecar 入口 (stdin/stdout)
-│       ├── commands.py     # 命令路由 (16 个命令)
+│       ├── commands.py     # 命令路由 (20 个命令)
 │       ├── ssdp.py         # SSDP 设备发现
 │       ├── protocol/       # DLNA 协议
 │       ├── renderer/       # MPV 渲染器
@@ -92,32 +92,39 @@ cd Macast-Han
 # 安装前端依赖
 npm install
 
-# 安装 Python 后端依赖
+# 安装 Python 后端依赖 (需要 uv)
 cd macast-backend
-pip install -e .
+uv sync
 cd ..
 ```
 
 ### 开发
 
 ```bash
-# 启动 Tauri 开发模式 (前端 + Rust + Python Sidecar)
+# 启动 Tauri 开发模式 (前端 + Rust + Python Sidecar 一键启动)
 npm run tauri dev
 
-# 仅前端开发 (mock 数据，不需要 Python)
+# 仅前端开发 (浏览器 mock 数据，不需要 Python/Rust)
 npm run dev
 
-# 仅 Python 后端测试
+# 仅 Python 后端 (独立调试)
 cd macast-backend
-python -m macast_sidecar.main
+uv run python -m macast_sidecar.main
 ```
 
 ### 构建
 
 ```bash
-# 构建生产版本
+# 构建生产版本 (输出到 src-tauri/target/release/bundle/)
 npm run tauri build
 ```
+
+构建产物：
+- **MSI 安装包**: `src-tauri/target/release/bundle/msi/Macast-Han_2.0.0_x64_en-US.msi`
+- **NSIS 安装包**: `src-tauri/target/release/bundle/nsis/Macast-Han_2.0.0_x64-setup.exe`
+- **裸 exe**: `src-tauri/target/release/macast-han.exe`（不推荐直接运行，缺少 Python 环境）
+
+> **注意**: 直接运行 `macast-han.exe` 会闪退，因为它依赖 Python Sidecar（通过 `uv` 启动）。开发测试请用 `npm run tauri dev`。
 
 ## 架构
 

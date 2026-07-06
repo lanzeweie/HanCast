@@ -1,11 +1,18 @@
 mod sidecar;
 
 use sidecar::SidecarManager;
+use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, State,
 };
+use tauri_plugin_clipboard_manager::ClipboardExt;
+
+/// 当前投屏 URL 缓存（供托盘菜单使用）
+struct CastUrlState {
+    url: Arc<Mutex<String>>,
+}
 
 #[tauri::command]
 fn minimize_window(window: tauri::Window) {
@@ -142,6 +149,11 @@ async fn get_cast_state(sidecar: State<'_, SidecarManager>) -> Result<serde_json
 }
 
 #[tauri::command]
+async fn get_cast_url(sidecar: State<'_, SidecarManager>) -> Result<serde_json::Value, String> {
+    sidecar.send_command("get_cast_url", serde_json::json!({})).await
+}
+
+#[tauri::command]
 async fn set_volume(sidecar: State<'_, SidecarManager>, volume: u32) -> Result<(), String> {
     sidecar
         .send_command("set_volume", serde_json::json!({"volume": volume}))
@@ -175,15 +187,36 @@ async fn save_settings(
     Ok(())
 }
 
+/// 格式化托盘菜单中的投屏地址文本（URL 最多显示 15 字符，超出截断加省略号）
+fn format_cast_url_label(url: &str) -> String {
+    if url.is_empty() {
+        "复制当前投屏地址：（无）".to_string()
+    } else if url.chars().count() > 15 {
+        let truncated: String = url.chars().take(15).collect();
+        format!("复制当前投屏地址：{}…", truncated)
+    } else {
+        format!("复制当前投屏地址：{}", url)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .on_menu_event(|app, event| {
             if event.id() == "show" {
                 if let Some(window) = app.get_webview_window("main") {
                     window.show().ok();
                     window.set_focus().ok();
+                }
+            } else if event.id() == "copy_cast_url" {
+                // 从状态中读取完整 URL 并复制到剪贴板
+                if let Some(state) = app.try_state::<CastUrlState>() {
+                    let url = state.url.lock().unwrap().clone();
+                    if !url.is_empty() {
+                        app.clipboard().write_text(url).ok();
+                    }
                 }
             } else if event.id() == "quit" {
                 app.exit(0);
@@ -194,17 +227,30 @@ pub fn run() {
             let sidecar = SidecarManager::new(app.handle().clone())?;
             app.manage(sidecar);
 
+            // Initialize cast URL state
+            let cast_url = Arc::new(Mutex::new(String::new()));
+            app.manage(CastUrlState {
+                url: cast_url.clone(),
+            });
+
             // Build tray menu
+            let cast_url_item = MenuItemBuilder::with_id(
+                "copy_cast_url",
+                format_cast_url_label(""),
+            )
+            .build(app)?;
             let show = MenuItemBuilder::with_id("show", "显示窗口")
-                .build(app)
-                .unwrap();
+                .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出")
-                .build(app)
-                .unwrap();
-            let menu = MenuBuilder::new(app).item(&show).item(&quit).build().unwrap();
+                .build(app)?;
+            let menu = MenuBuilder::new(app)
+                .item(&cast_url_item)
+                .item(&show)
+                .item(&quit)
+                .build()?;
 
             // Build tray icon
-            let _tray = TrayIconBuilder::new()
+            let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Macast")
                 .menu(&menu)
@@ -227,6 +273,62 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Background task: poll get_cast_url every second and update tray menu
+            let app_handle = app.handle().clone();
+            let tray_id = tray.id().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut last_url = String::new();
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                    // Call sidecar to get current cast URL
+                    let sidecar = app_handle.state::<SidecarManager>();
+                    let new_url = match sidecar
+                        .send_command("get_cast_url", serde_json::json!({}))
+                        .await
+                    {
+                        Ok(val) => val
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        Err(_) => String::new(),
+                    };
+
+                    // Only update menu when URL changed
+                    if new_url != last_url {
+                        last_url = new_url.clone();
+                        // Update state for clipboard copy
+                        if let Some(state) = app_handle.try_state::<CastUrlState>() {
+                            *state.url.lock().unwrap() = new_url.clone();
+                        }
+                        // Update tray menu item label
+                        if let Some(tray) = app_handle.tray_by_id(&tray_id) {
+                            let new_item = MenuItemBuilder::with_id(
+                                "copy_cast_url",
+                                format_cast_url_label(&new_url),
+                            )
+                            .build(&app_handle)
+                            .unwrap();
+                            let show_item = MenuItemBuilder::with_id("show", "显示窗口")
+                                .build(&app_handle)
+                                .unwrap();
+                            let quit_item = MenuItemBuilder::with_id("quit", "退出")
+                                .build(&app_handle)
+                                .unwrap();
+                            let new_menu = MenuBuilder::new(&app_handle)
+                                .item(&new_item)
+                                .item(&show_item)
+                                .item(&quit_item)
+                                .build()
+                                .unwrap();
+                            tray.set_menu(Some(new_menu)).ok();
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -245,6 +347,7 @@ pub fn run() {
             resume_cast,
             seek_cast,
             get_cast_state,
+            get_cast_url,
             set_volume,
             set_mute,
             get_settings,

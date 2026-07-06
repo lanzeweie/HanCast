@@ -2,38 +2,129 @@
 
 > **目标读者**: 前端开发者
 > **技术栈**: Tauri 2.0 + Vue 3 + TypeScript
-> **最后更新**: 2026-07-05
+> **最后更新**: 2026-07-06
 
 ---
 
-## 1. 快速开始
+## 1. 系统架构
 
-### 1.1 安装依赖
+Macast 2.0 是三层架构应用：
+
+```
+┌─────────────────────────────────────────────┐
+│  第一层: 前端 (Vue 3 + Vite)                 │
+│  - UI 渲染、用户交互                          │
+│  - 通过 Tauri IPC 调用 Rust 后端              │
+├─────────────────────────────────────────────┤
+│  第二层: Rust 桥接 (Tauri Core)               │
+│  - 窗口管理、系统托盘                          │
+│  - 管理 Python Sidecar 进程                   │
+│  - stdin/stdout JSON 协议通信                 │
+├─────────────────────────────────────────────┤
+│  第三层: Python 后端 (Sidecar)                │
+│  - SSDP 设备发现 (端口 1900)                  │
+│  - DLNA 协议处理 (端口 8080)                  │
+│  - MPV 播放器控制 (IPC)                       │
+│  - 媒体文件 HTTP 服务 (随机端口)               │
+└─────────────────────────────────────────────┘
+```
+
+### 通信协议
+
+Rust ↔ Python 通过 stdin/stdout 使用 JSON 行协议：
+
+```json
+// 请求 (Rust → Python)
+{"id": 1, "cmd": "get_devices", "params": {}}
+
+// 响应 (Python → Rust)
+{"id": 1, "success": true, "data": [...]}
+
+// 事件推送 (Python → Rust)
+{"event": "device_found", "data": {"id": "...", "name": "..."}}
+```
+
+---
+
+## 2. 启动方法
+
+### 2.1 完整应用启动（推荐）
+
+一键启动前端 + Rust + Python 全部三层：
 
 ```bash
-npm install @tauri-apps/api
+# 安装前端依赖（首次）
+npm install
+
+# 安装 Python 依赖（首次）
+cd macast-backend && uv sync && cd ..
+
+# 启动完整应用
+npx tauri dev
 ```
 
-### 1.2 基础用法
+`tauri dev` 会自动：
+1. 启动 Vite 开发服务器（`localhost:1420`）
+2. 编译并启动 Rust 应用
+3. Rust 自动拉起 Python Sidecar 进程
 
-```typescript
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+### 2.2 单独启动各层（开发调试）
 
-// 调用后端命令
-const devices = await invoke('get_devices');
+#### 前端开发服务器
 
-// 监听事件
-const unlisten = await listen('device_found', (event) => {
-  console.log('发现新设备:', event.payload);
-});
+```bash
+npm run dev
+# → Vite 启动在 http://localhost:1420
+# 仅用于前端 UI 开发，不包含 Rust 和 Python
 ```
+
+#### Rust 应用
+
+```bash
+cd src-tauri
+cargo build          # 编译
+cargo run            # 运行（会自动拉起 Python sidecar）
+```
+
+#### Python Sidecar（独立测试）
+
+```bash
+cd macast-backend
+
+# 方式 1: 持续运行模式（带界面输出）
+uv run python scripts/run_sidecar.py
+
+# 方式 2: stdin/stdout 模式（供 Rust 调用）
+uv run python -m macast_sidecar.main
+```
+
+独立运行 Sidecar 可用于：
+- 测试 DLNA 投屏功能（无需启动 Tauri）
+- 调试 SSDP 设备发现
+- 验证 MPV 播放器连接
+
+### 2.3 生产构建
+
+```bash
+npx tauri build
+# → 输出安装包到 src-tauri/target/release/bundle/
+```
+
+### 2.4 环境要求
+
+| 依赖 | 版本 | 说明 |
+|------|------|------|
+| Node.js | >= 18 | 前端构建 |
+| Rust | >= 1.75 | Tauri 编译 |
+| Python | >= 3.11 | 后端运行 |
+| uv | >= 0.5 | Python 包管理 |
+| MPV | 最新版 | 媒体播放器 |
 
 ---
 
-## 2. API 接口列表
+## 3. API 接口列表
 
-### 2.1 设备管理
+### 3.1 设备管理
 
 #### `get_devices()`
 
@@ -136,7 +227,7 @@ await invoke('remove_device', { id: device_id });
 
 ---
 
-### 2.2 投屏控制
+### 3.2 投屏控制
 
 #### `start_cast(device_id: string, media_uri: string)`
 
@@ -339,7 +430,7 @@ await invoke('set_mute', { muted: true });
 
 ---
 
-### 2.3 媒体解析
+### 3.3 媒体解析
 
 #### `parse_media_file(filePath: string)`
 
@@ -379,7 +470,7 @@ const mediaInfo: MediaInfo = await invoke('parse_media_url', {
 
 ---
 
-### 2.4 设置管理
+### 3.4 设置管理
 
 #### `get_settings()`
 
@@ -426,9 +517,9 @@ await invoke('save_settings', {
 
 ---
 
-## 3. 事件监听
+## 4. 事件监听
 
-### 3.1 事件列表
+### 4.1 事件列表
 
 | 事件名 | 触发时机 | Payload 类型 |
 |--------|----------|--------------|
@@ -437,7 +528,7 @@ await invoke('save_settings', {
 | `cast_state_changed` | 投屏状态变化 | `CastState` |
 | `cast_error` | 投屏出错 | `{ message: string }` |
 
-### 3.2 监听示例
+### 4.2 监听示例
 
 ```typescript
 import { listen } from '@tauri-apps/api/event';
@@ -485,9 +576,9 @@ onUnmounted(() => {
 
 ---
 
-## 4. 错误处理
+## 5. 错误处理
 
-### 4.1 错误类型
+### 5.1 错误类型
 
 所有 API 调用都可能抛出错误，错误信息为字符串。
 
@@ -503,7 +594,7 @@ try {
 }
 ```
 
-### 4.2 常见错误
+### 5.2 常见错误
 
 | 错误信息 | 原因 | 处理建议 |
 |----------|------|----------|
@@ -513,7 +604,7 @@ try {
 | `Unsupported format` | 不支持的媒体格式 | 提示用户选择支持的格式 |
 | `Unknown command` | 命令不存在 | 检查命令拼写 |
 
-### 4.3 错误处理示例
+### 5.3 错误处理示例
 
 ```typescript
 import { message } from '@tauri-apps/plugin-dialog';
@@ -533,9 +624,9 @@ async function handleCast(deviceId: string, mediaUri: string) {
 
 ---
 
-## 5. 完整示例
+## 6. 完整示例
 
-### 5.1 设备列表组件
+### 6.1 设备列表组件
 
 ```vue
 <script setup lang="ts">
@@ -643,7 +734,7 @@ async function selectDevice(device_id: string) {
 </template>
 ```
 
-### 5.2 投屏控制组件
+### 6.2 投屏控制组件
 
 ```vue
 <script setup lang="ts">
@@ -781,7 +872,7 @@ async function seek(position: string) {
 
 ---
 
-## 6. TypeScript 类型定义
+## 7. TypeScript 类型定义
 
 将以下内容保存为 `types/api.ts`:
 
@@ -852,7 +943,7 @@ export interface CastErrorEvent {
 
 ---
 
-## 7. API 快速参考表
+## 8. API 快速参考表
 
 | 函数 | 参数 | 返回值 | 说明 |
 |------|------|--------|------|

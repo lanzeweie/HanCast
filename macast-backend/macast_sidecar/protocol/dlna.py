@@ -468,16 +468,16 @@ class DLNAProtocol:
         root = etree.fromstring(rawbody)[0][0]
         param = {}
         for node in root:
-            param[node.tag] = node.text
-        action = root.tag.split('}')[1]
-        service = root.tag.split(":")[3]
+            # 提取本地名 (去掉命名空间前缀)，与 XML 定义的 argument name 匹配
+            # 例如 {urn:...}InstanceID → InstanceID
+            local_name = etree.QName(node.tag).localname
+            param[local_name] = node.text
+        action = etree.QName(root.tag).localname
+        # 从命名空间提取服务名: urn:schemas-upnp-org:service:AVTransport:1 → AVTransport
+        ns = etree.QName(root.tag).namespace
+        service = ns.split(":")[3] if ns else ""
         method = f"{service}_{action}"
-        if method not in [
-            'AVTransport_GetPositionInfo',
-            'AVTransport_GetTransportInfo',
-            'RenderingControl_GetVolume'
-        ]:
-            logger.info(f"{method} {param}")
+        logger.info(f"SOAP: {method} params={param}")
         res = {}
         service_type = Service.get(service)
         if action not in service_type.actions:

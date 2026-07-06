@@ -266,6 +266,45 @@ interface MediaInfo {
 
 ---
 
+#### `get_cast_url()`
+
+获取当前投屏元素的 URL 和播放进度信息。适用于前端需要显示当前投屏内容、进度条等场景。
+
+```typescript
+const info: CastUrlInfo = await invoke('get_cast_url');
+```
+
+**返回值**: `CastUrlInfo`
+
+```typescript
+interface CastUrlInfo {
+  url: string;       // 当前投屏媒体 URL（为空表示无投屏）
+  title: string;     // 媒体标题
+  duration: string;  // 总时长，格式 HH:MM:SS
+  position: string;  // 当前进度，格式 HH:MM:SS
+  status: string;    // 播放状态: PLAYING / PAUSED_PLAYBACK / STOPPED / NO_MEDIA_PRESENT
+}
+```
+
+**示例**:
+```typescript
+const info = await invoke('get_cast_url');
+if (info.url) {
+  console.log(`正在投屏: ${info.title}`);
+  console.log(`进度: ${info.position} / ${info.duration}`);
+  console.log(`URL: ${info.url}`);
+} else {
+  console.log('当前无投屏');
+}
+```
+
+**说明**:
+- 当无投屏时，`url` 为空字符串，`status` 为 `STOPPED`
+- `duration` 和 `position` 格式为 `HH:MM:SS` 或 `H:MM:SS`
+- 此接口轻量，适合轮询（如每秒调用一次更新进度条）
+
+---
+
 #### `set_volume(volume: number)`
 
 设置音量。
@@ -782,6 +821,15 @@ export interface CastState {
   is_muted: boolean;
 }
 
+// 投屏 URL 信息
+export interface CastUrlInfo {
+  url: string;       // 当前投屏媒体 URL
+  title: string;     // 媒体标题
+  duration: string;  // 总时长 HH:MM:SS
+  position: string;  // 当前进度 HH:MM:SS
+  status: string;    // 播放状态
+}
+
 // 应用设置
 export interface AppSettings {
   usn: string;
@@ -819,6 +867,7 @@ export interface CastErrorEvent {
 | `resume_cast()` | - | `null` | 恢复投屏 |
 | `seek_cast(position)` | `{ position: string }` | `null` | 跳转位置 |
 | `get_cast_state()` | - | `CastState` | 获取状态 |
+| `get_cast_url()` | - | `CastUrlInfo` | 获取投屏URL和进度 |
 | `set_volume(volume)` | `{ volume: number }` | `null` | 设置音量 |
 | `set_mute(muted)` | `{ muted: boolean }` | `null` | 设置静音 |
 | `parse_media_file(path)` | `{ file_path: string }` | `MediaInfo` | 解析文件 |

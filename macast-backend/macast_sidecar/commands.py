@@ -108,6 +108,7 @@ class CommandHandler:
             "start_cast": self._start_cast,
             "stop_cast": self._stop_cast,
             "get_cast_state": self._get_cast_state,
+            "get_cast_url": self._get_cast_url,
             "set_volume": self._set_volume,
             "set_mute": self._set_mute,
             "pause_cast": self._pause_cast,
@@ -242,6 +243,21 @@ class CommandHandler:
 
     def _get_cast_state(self, params: dict) -> dict:
         return self.cast_state.to_dict()
+
+    def _get_cast_url(self, params: dict) -> dict:
+        """获取当前投屏元素的 URL 信息"""
+        url = self.protocol.get_state_url()
+        title = self.protocol.get_state_title()
+        duration = self.protocol.get_state_duration()
+        position = self.protocol.get_state_position()
+        transport = self.protocol.get_state_transport_state()
+        return {
+            "url": url or "",
+            "title": title or "",
+            "duration": duration or "00:00:00",
+            "position": position or "00:00:00",
+            "status": transport or "STOPPED",
+        }
 
     def _set_volume(self, params: dict) -> None:
         volume = params["volume"]

@@ -15,6 +15,7 @@ import logging
 import threading
 import requests as http_requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 from typing import Dict, Tuple
 
@@ -85,7 +86,10 @@ class MediaHandler(BaseHTTPRequestHandler):
                     chunk = f.read(min(8192, remaining))
                     if not chunk:
                         break
-                    self.wfile.write(chunk)
+                    try:
+                        self.wfile.write(chunk)
+                    except (ConnectionResetError, BrokenPipeError):
+                        return  # 客户端断开，静默退出
                     remaining -= len(chunk)
         else:
             self.send_response(200)
@@ -96,7 +100,10 @@ class MediaHandler(BaseHTTPRequestHandler):
 
             with open(file_path, "rb") as f:
                 while chunk := f.read(8192):
-                    self.wfile.write(chunk)
+                    try:
+                        self.wfile.write(chunk)
+                    except (ConnectionResetError, BrokenPipeError):
+                        return  # 客户端断开，静默退出
 
     def _parse_range(self, header: str, file_size: int):
         range_spec = header.replace("bytes=", "").strip()
@@ -205,7 +212,11 @@ class MediaServer:
     def start(self, port: int = 0):
         """启动服务器"""
         self.port = port or self._find_free_port()
-        self._server = HTTPServer(
+
+        class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+            daemon_threads = True
+
+        self._server = ThreadedHTTPServer(
             (self.host, self.port), MediaHandler
         )
         self._thread = threading.Thread(

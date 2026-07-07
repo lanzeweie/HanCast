@@ -382,3 +382,62 @@ npm run test
 - `context.md` — 项目上下文快照
 
 **重要**：每次会话开始时读取 memory 文件，结束时更新进度。
+
+## 知识图谱（Understand Anything）
+
+项目使用 [understand-anything](https://github.com/understand-anything/understand-anything) 插件生成代码知识图谱，用于可视化项目架构。
+
+### 生成知识图谱
+
+```bash
+# 首次全量分析（生成 .understand-anything/knowledge-graph.json）
+/understand-anything:understand
+
+# 指定语言（中文输出）
+/understand-anything:understand --language zh
+
+# 增量更新（仅分析 git 变更文件）
+/understand-anything:understand
+
+# 强制全量重建
+/understand-anything:understand --full
+
+# LLM 审查模式（更详细但更慢）
+/understand-anything:understand --review
+
+# 禁用自动更新
+/understand-anything:understand --no-auto-update
+```
+
+### 启动仪表板
+
+```bash
+# 启动交互式知识图谱仪表板（浏览器可视化）
+/understand-anything:understand-dashboard
+```
+
+仪表板启动后访问 `http://127.0.0.1:5173`，可交互式浏览：
+- 项目架构层级（前端 UI → Tauri 桥接 → Python 后端）
+- 文件间依赖关系（imports、calls、configures 等）
+- 12 步导览（从 README 到 MPV 渲染器）
+- 函数/类级别节点
+
+### 知识图谱文件
+
+| 文件 | 说明 |
+|------|------|
+| `.understand-anything/knowledge-graph.json` | 知识图谱主文件（34KB） |
+| `.understand-anything/meta.json` | 分析元数据（时间、commit hash） |
+| `.understand-anything/.understandignore` | 排除规则（类似 .gitignore） |
+
+### 知识图谱 Schema
+
+- **节点类型**：`file`、`function`、`class`、`config`、`document`、`service`、`pipeline`、`table`、`endpoint`、`schema`、`resource`、`module`、`concept`
+- **边类型**：`imports`、`exports`、`contains`、`inherits`、`implements`、`calls`、`depends_on`、`tested_by`、`configures`、`documents` 等 26 种
+- **层级**：前端 UI、Tauri 桥接层、Python 后端、项目配置
+
+### 注意事项
+
+- 图谱在 git commit 变更后自动增量更新（需 `--auto-update`）
+- 后台代理需要可用的 Claude 模型（如 `sonnet`），`opus-4-8` 在部分账号不可用
+- 图谱语言默认跟随会话语言（中文会话生成中文描述）

@@ -519,6 +519,7 @@ function onFileSelected(e: Event) {
             <span class="device-modal__ip">{{ device.ip }}</span>
           </div>
           <span v-if="device.is_default" class="device-modal__badge">{{ t('devices.defaultBadge') }}</span>
+          <span v-if="castStore.getSession(device.id)" class="device-modal__badge device-modal__badge--casting">{{ t('devices.casting') }}</span>
         </button>
       </div>
       <template #actions>
@@ -857,5 +858,9 @@ function onFileSelected(e: Event) {
   border-radius: var(--r-full);
   font-weight: 500;
   flex-shrink: 0;
+}
+.device-modal__badge--casting {
+  background: rgba(251, 191, 36, 0.15);
+  color: #D97706;
 }
 </style>

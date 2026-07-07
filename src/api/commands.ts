@@ -205,50 +205,50 @@ export async function resolveBilibili(url: string): Promise<MediaInfo> {
   return invoke<MediaInfo>('resolve_bilibili', { url })
 }
 
-// Cast control
+// Cast control — all commands accept optional deviceId for multi-device support
 export async function startCast(deviceId: string, mediaUri: string, mimeType?: string): Promise<void> {
   const invoke = await initInvoke()
   await invoke('start_cast', { deviceId, mediaUri, mimeType })
 }
 
-export async function stopCast(): Promise<void> {
+export async function stopCast(deviceId?: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('stop_cast')
+  await invoke('stop_cast', deviceId ? { deviceId } : {})
 }
 
-export async function pauseCast(): Promise<void> {
+export async function pauseCast(deviceId?: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('pause_cast')
+  await invoke('pause_cast', deviceId ? { deviceId } : {})
 }
 
-export async function resumeCast(): Promise<void> {
+export async function resumeCast(deviceId?: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('resume_cast')
+  await invoke('resume_cast', deviceId ? { deviceId } : {})
 }
 
-export async function seekCast(position: string): Promise<void> {
+export async function seekCast(position: string, deviceId?: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('seek_cast', { position })
+  await invoke('seek_cast', { position, ...(deviceId ? { deviceId } : {}) })
 }
 
-export async function getCastState(): Promise<CastState> {
+export async function getCastState(deviceId?: string): Promise<CastState> {
   const invoke = await initInvoke()
-  return invoke<CastState>('get_cast_state')
+  return invoke<CastState>('get_cast_state', deviceId ? { deviceId } : {})
 }
 
-export async function getCastUrl(): Promise<CastUrlInfo> {
+export async function getCastUrl(deviceId?: string): Promise<CastUrlInfo> {
   const invoke = await initInvoke()
-  return invoke<CastUrlInfo>('get_cast_url')
+  return invoke<CastUrlInfo>('get_cast_url', deviceId ? { deviceId } : {})
 }
 
-export async function setVolume(volume: number): Promise<number> {
+export async function setVolume(volume: number, deviceId?: string): Promise<number> {
   const invoke = await initInvoke()
-  return invoke<number>('set_volume', { volume })
+  return invoke<number>('set_volume', { volume, ...(deviceId ? { deviceId } : {}) })
 }
 
-export async function setMute(muted: boolean): Promise<void> {
+export async function setMute(muted: boolean, deviceId?: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('set_mute', { muted })
+  await invoke('set_mute', { muted, ...(deviceId ? { deviceId } : {}) })
 }
 
 // Settings

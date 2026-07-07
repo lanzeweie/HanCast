@@ -130,59 +130,99 @@ async fn start_cast(
 }
 
 #[tauri::command]
-async fn stop_cast(sidecar: State<'_, SidecarManager>) -> Result<(), String> {
+async fn stop_cast(
+    sidecar: State<'_, SidecarManager>,
+    device_id: Option<String>,
+) -> Result<(), String> {
     sidecar
-        .send_command("stop_cast", serde_json::json!({}))
+        .send_command("stop_cast", serde_json::json!({"device_id": device_id}))
         .await?;
     Ok(())
 }
 
 #[tauri::command]
-async fn pause_cast(sidecar: State<'_, SidecarManager>) -> Result<(), String> {
+async fn pause_cast(
+    sidecar: State<'_, SidecarManager>,
+    device_id: Option<String>,
+) -> Result<(), String> {
     sidecar
-        .send_command("pause_cast", serde_json::json!({}))
+        .send_command("pause_cast", serde_json::json!({"device_id": device_id}))
         .await?;
     Ok(())
 }
 
 #[tauri::command]
-async fn resume_cast(sidecar: State<'_, SidecarManager>) -> Result<(), String> {
+async fn resume_cast(
+    sidecar: State<'_, SidecarManager>,
+    device_id: Option<String>,
+) -> Result<(), String> {
     sidecar
-        .send_command("resume_cast", serde_json::json!({}))
+        .send_command("resume_cast", serde_json::json!({"device_id": device_id}))
         .await?;
     Ok(())
 }
 
 #[tauri::command]
-async fn seek_cast(sidecar: State<'_, SidecarManager>, position: String) -> Result<(), String> {
+async fn seek_cast(
+    sidecar: State<'_, SidecarManager>,
+    position: String,
+    device_id: Option<String>,
+) -> Result<(), String> {
     sidecar
-        .send_command("seek_cast", serde_json::json!({"position": position}))
+        .send_command(
+            "seek_cast",
+            serde_json::json!({"position": position, "device_id": device_id}),
+        )
         .await?;
     Ok(())
 }
 
 #[tauri::command]
-async fn get_cast_state(sidecar: State<'_, SidecarManager>) -> Result<serde_json::Value, String> {
-    sidecar.send_command("get_cast_state", serde_json::json!({})).await
+async fn get_cast_state(
+    sidecar: State<'_, SidecarManager>,
+    device_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command("get_cast_state", serde_json::json!({"device_id": device_id}))
+        .await
 }
 
 #[tauri::command]
-async fn get_cast_url(sidecar: State<'_, SidecarManager>) -> Result<serde_json::Value, String> {
-    sidecar.send_command("get_cast_url", serde_json::json!({})).await
+async fn get_cast_url(
+    sidecar: State<'_, SidecarManager>,
+    device_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command("get_cast_url", serde_json::json!({"device_id": device_id}))
+        .await
 }
 
 #[tauri::command]
-async fn set_volume(sidecar: State<'_, SidecarManager>, volume: u32) -> Result<u32, String> {
+async fn set_volume(
+    sidecar: State<'_, SidecarManager>,
+    volume: u32,
+    device_id: Option<String>,
+) -> Result<u32, String> {
     let result = sidecar
-        .send_command("set_volume", serde_json::json!({"volume": volume}))
+        .send_command(
+            "set_volume",
+            serde_json::json!({"volume": volume, "device_id": device_id}),
+        )
         .await?;
     Ok(result.as_u64().unwrap_or(volume as u64) as u32)
 }
 
 #[tauri::command]
-async fn set_mute(sidecar: State<'_, SidecarManager>, muted: bool) -> Result<(), String> {
+async fn set_mute(
+    sidecar: State<'_, SidecarManager>,
+    muted: bool,
+    device_id: Option<String>,
+) -> Result<(), String> {
     sidecar
-        .send_command("set_mute", serde_json::json!({"muted": muted}))
+        .send_command(
+            "set_mute",
+            serde_json::json!({"muted": muted, "device_id": device_id}),
+        )
         .await?;
     Ok(())
 }

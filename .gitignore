@@ -73,3 +73,9 @@ Macast-main/
 mpv/
 
 .understand-anything/
+
+# Claude Code 专用启动脚本（本地使用）
+scripts/claude-frontend.bat
+scripts/claude-backend.bat
+scripts/claude-knowledge.bat
+scripts/claude-dashboard.bat

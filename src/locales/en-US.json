@@ -62,5 +62,7 @@
   "controller.device": "Device",
   "controller.minimize": "Minimize",
   "controller.close": "Close",
-  "controller.noMedia": "No media"
+  "controller.noMedia": "No media",
+  "controller.prevDevice": "Previous device",
+  "controller.nextDevice": "Next device"
 }

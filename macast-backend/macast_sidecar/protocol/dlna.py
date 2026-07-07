@@ -290,6 +290,16 @@ class DLNAProtocol:
     def play(self, media_uri: str = None, metadata: str = ""):
         """播放媒体"""
         if media_uri and self._device:
+            # 先停止远端现有播放，确保远端处于空闲状态
+            try:
+                self._send_action(
+                    NS_AVTRANSPORT, "Stop",
+                    {"InstanceID": 0}
+                )
+            except Exception:
+                pass
+            time.sleep(0.3)
+
             # 设置 URI
             self._send_action(
                 NS_AVTRANSPORT, "SetAVTransportURI",
@@ -301,6 +311,9 @@ class DLNAProtocol:
             )
             self.set_state('CurrentTrackURI', media_uri)
 
+            # 等待远端加载媒体（通过轮询 TrackDuration 判断）
+            self._wait_for_media_ready(timeout=3.0)
+
         # 发送 Play
         if self._device:
             self._send_action(
@@ -308,6 +321,23 @@ class DLNAProtocol:
                 {"InstanceID": 0, "Speed": 1}
             )
         self.set_state('TransportState', 'PLAYING')
+
+    def _wait_for_media_ready(self, timeout: float = 5.0) -> bool:
+        """等待远端设备媒体加载完成（通过轮询 TrackDuration 判断）"""
+        if not self._device:
+            return True
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                pos_info = self.get_position_info()
+                duration = pos_info.get('TrackDuration', '00:00:00')
+                if duration and duration != '00:00:00':
+                    logger.debug(f"Remote media ready, duration: {duration}")
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.3)
+        return False
 
     def stop(self):
         """停止播放"""
@@ -842,8 +872,10 @@ class DLNAProtocol:
     def _send_action(self, service: str, action: str, params: dict):
         """发送 SOAP 请求"""
         if not self._control_url:
-            logger.error("No control URL")
+            logger.debug("No control URL, skip action: %s", action)
             return None
+
+        logger.info(f"SOAP OUT → {self._control_url} | {action} | params={params}")
 
         # 构建 SOAP XML
         envelope = etree.Element(
@@ -869,14 +901,19 @@ class DLNAProtocol:
             "SOAPAction": f'"{service}#{action}"',
         }
 
-        response = requests.post(
-            self._control_url,
-            data=xml_data,
-            headers=headers,
-            timeout=10,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(
+                self._control_url,
+                data=xml_data,
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"SOAP {action} failed to {self._control_url}: {e}")
+            raise
 
+        logger.info(f"SOAP OUT ← {response.status_code} | {action}")
         return etree.fromstring(response.content)
 
 

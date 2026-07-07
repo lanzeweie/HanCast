@@ -6,9 +6,7 @@ import os
 import sys
 import json
 import logging
-import threading
-import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from .ssdp import SSDPService
 from .protocol.dlna import DLNAProtocol
 from .protocol.server import DLNAServer, DLNAHandler
@@ -19,6 +17,7 @@ from .media.bili_resolver import BiliResolver
 from .types.device import Device
 from .types.media import MediaInfo
 from .types.cast import CastState
+from .types.session import DeviceCastSession
 from .utils.config import Config
 
 logger = logging.getLogger("macast.commands")
@@ -79,6 +78,9 @@ class CommandHandler:
         self.media_parser = MediaParser()
         self.media_server = MediaServer()
         self.cast_state = CastState()
+
+        # 多设备投屏会话 {device_id: DeviceCastSession}
+        self.device_sessions: Dict[str, DeviceCastSession] = {}
 
         # DLNA 描述服务器
         friendly_name = self.config.get_friendly_name()
@@ -169,10 +171,6 @@ class CommandHandler:
         self.renderer.start()
         logger.info("MPV renderer started")
 
-        # 投屏进度轮询线程（控制器模式下，主动查询远程设备进度）
-        self._poll_running = False
-        self._poll_thread = None
-
     def execute(self, cmd: str, params: Dict[str, Any]) -> Any:
         """执行命令"""
         if cmd not in self._commands:
@@ -181,7 +179,10 @@ class CommandHandler:
 
     def cleanup(self):
         """清理资源"""
-        self._stop_poll()
+        # 停止所有投屏会话
+        for session in self.device_sessions.values():
+            session.stop()
+        self.device_sessions.clear()
         self.ssdp.stop()
         self.dlna_server.stop()
         self.media_server.stop()
@@ -277,6 +278,45 @@ class CommandHandler:
 
     # ── 投屏控制 ──
 
+    def _get_or_create_session(self, device_id: str) -> DeviceCastSession:
+        """获取或创建设备投屏会话"""
+        if device_id in self.device_sessions:
+            return self.device_sessions[device_id]
+
+        # 创建新会话
+        device = self.ssdp.get_device(device_id)
+        if not device:
+            raise ValueError(f"Device not found: {device_id}")
+
+        session = DeviceCastSession(device, self.media_server)
+        session.set_poll_callback(self._on_session_event)
+        self.device_sessions[device_id] = session
+        logger.info(f"Created cast session for device: {device.display_name}")
+        return session
+
+    def _on_session_event(self, device_id: str, event_type: str) -> None:
+        """Session 事件回调 → 推送到前端"""
+        session = self.device_sessions.get(device_id)
+        if not session:
+            return
+
+        state = session.cast_state
+        event_data = {
+            "status": state.status,
+            "device_id": device_id,
+            "position": state.position,
+            "duration": state.duration,
+            "volume": state.volume,
+            "is_muted": state.is_muted,
+        }
+        if state.media:
+            event_data["media"] = state.media.to_dict()
+
+        print(json.dumps({
+            "event": "cast_state_changed",
+            "data": event_data
+        }), flush=True)
+
     def _start_cast(self, params: dict) -> None:
         device_id = params["device_id"]
         media_uri = params["media_uri"]
@@ -286,45 +326,87 @@ class CommandHandler:
         if not media_uri.startswith("http"):
             media_uri = self.media_server.serve_file(media_uri)
 
-        device = self.ssdp.get_device(device_id)
-        if not device:
-            raise ValueError(f"Device not found: {device_id}")
+        # 获取或创建设备会话（每个设备独立的 DLNAProtocol 实例）
+        session = self._get_or_create_session(device_id)
+        session.play(media_uri, mime_type)
 
-        self.protocol.set_device(device)
-        self.protocol.play(media_uri)
+        # 立即推送初始 cast_state_changed 事件到前端
+        # 前端依赖此事件识别活跃投屏会话；若仅靠 polling 回调，
+        # 首次 poll 可能返回 00:00:00（设备未就绪），前端无法识别会话
+        state = session.cast_state
+        event_data = {
+            "status": state.status,
+            "device_id": device_id,
+            "position": state.position,
+            "duration": state.duration,
+            "volume": state.volume,
+            "is_muted": state.is_muted,
+        }
+        if state.media:
+            event_data["media"] = state.media.to_dict()
 
+        print(json.dumps({
+            "event": "cast_state_changed",
+            "data": event_data
+        }), flush=True)
+
+        # 同时更新全局 cast_state（兼容旧前端）
         self.cast_state.status = "playing"
         self.cast_state.device_id = device_id
 
-        # 图片类媒体不需要轮询进度
-        if mime_type.startswith("image/"):
-            logger.info(f"图片投屏，跳过进度轮询: {mime_type}")
-        else:
-            self._start_poll()
-
     def _stop_cast(self, params: dict) -> None:
-        self._stop_poll()
-        self.protocol.stop()
-        self.cast_state.status = "idle"
-        self.cast_state.device_id = None
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            # 停止指定设备
+            self.device_sessions[device_id].stop()
+            del self.device_sessions[device_id]
+        else:
+            # 停止所有设备
+            for session in self.device_sessions.values():
+                session.stop()
+            self.device_sessions.clear()
+            self.cast_state.status = "idle"
+            self.cast_state.device_id = None
 
     def _pause_cast(self, params: dict) -> None:
-        self.protocol.pause()
-        self.cast_state.status = "paused"
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            self.device_sessions[device_id].pause()
+        else:
+            self.protocol.pause()
+            self.cast_state.status = "paused"
 
     def _resume_cast(self, params: dict) -> None:
-        self.protocol.play()
-        self.cast_state.status = "playing"
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            self.device_sessions[device_id].resume()
+        else:
+            self.protocol.play()
+            self.cast_state.status = "playing"
 
     def _seek_cast(self, params: dict) -> None:
         position = params["position"]  # HH:MM:SS 格式
-        self.protocol.seek(position)
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            self.device_sessions[device_id].seek(position)
+        else:
+            self.protocol.seek(position)
 
     def _get_cast_state(self, params: dict) -> dict:
-        return self.cast_state.to_dict()
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            return self.device_sessions[device_id].get_state()
+        # 返回所有设备的状态
+        return {
+            "sessions": {did: s.get_state() for did, s in self.device_sessions.items()},
+            "current": self.cast_state.to_dict(),
+        }
 
     def _get_cast_url(self, params: dict) -> dict:
         """获取当前投屏元素的 URL 信息"""
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            return self.device_sessions[device_id].get_cast_info()
         url = self.protocol.get_state_url()
         title = self.protocol.get_state_title()
         duration = self.protocol.get_state_duration()
@@ -340,87 +422,21 @@ class CommandHandler:
 
     def _set_volume(self, params: dict) -> int:
         volume = params["volume"]
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            return self.device_sessions[device_id].set_volume(volume)
         self.protocol.set_volume(volume)
         self.cast_state.volume = volume
         return volume
 
     def _set_mute(self, params: dict) -> None:
         muted = params["muted"]
-        self.protocol.set_mute(muted)
-        self.cast_state.is_muted = muted
-
-    # ── 进度轮询（控制器模式） ──
-
-    def _start_poll(self):
-        """启动进度轮询线程"""
-        if self._poll_running:
-            return
-        self._poll_running = True
-        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
-        self._poll_thread.start()
-        logger.debug("进度轮询线程已启动")
-
-    def _stop_poll(self):
-        """停止进度轮询线程"""
-        self._poll_running = False
-        logger.debug("进度轮询线程已停止")
-
-    def _poll_loop(self):
-        """轮询远程设备的播放进度"""
-        transport_check_counter = 0
-
-        while self._poll_running:
-            try:
-                # 查询进度
-                pos_info = self.protocol.get_position_info()
-                duration = pos_info.get('TrackDuration', '00:00:00')
-                position = pos_info.get('RelTime', '00:00:00')
-
-                # 传输状态只每 3 秒查一次（变化不频繁，减少网络开销）
-                transport_check_counter += 1
-                if transport_check_counter >= 3 or not pos_info:
-                    transport_check_counter = 0
-                    transport_info = self.protocol.get_transport_info()
-                    transport_state = transport_info.get('CurrentTransportState', '')
-                    status_map = {
-                        "PLAYING": "playing",
-                        "PAUSED_PLAYBACK": "paused",
-                        "STOPPED": "stopped",
-                        "NO_MEDIA_PRESENT": "idle",
-                        "TRANSITIONING": "connecting",
-                    }
-                    self.cast_state.status = status_map.get(transport_state, self.cast_state.status)
-
-                    # 如果播放结束，停止轮询
-                    if transport_state in ('STOPPED', 'NO_MEDIA_PRESENT'):
-                        logger.info(f"播放结束 (state={transport_state})，停止轮询")
-                        self._poll_running = False
-
-                # 更新进度
-                self.cast_state.duration = duration or '00:00:00'
-                self.cast_state.position = position or '00:00:00'
-
-                # 推送事件到前端
-                event_data = {
-                    "status": self.cast_state.status,
-                    "device_id": self.cast_state.device_id,
-                    "position": position or "00:00:00",
-                    "duration": duration or "00:00:00",
-                    "volume": self.cast_state.volume,
-                    "is_muted": self.cast_state.is_muted,
-                }
-                if self.cast_state.media:
-                    event_data["media"] = self.cast_state.media.to_dict()
-
-                print(json.dumps({
-                    "event": "cast_state_changed",
-                    "data": event_data
-                }), flush=True)
-
-            except Exception as e:
-                logger.error(f"进度轮询异常: {e}")
-
-            time.sleep(1)  # 每秒查询一次
+        device_id = params.get("device_id")
+        if device_id and device_id in self.device_sessions:
+            self.device_sessions[device_id].set_mute(muted)
+        else:
+            self.protocol.set_mute(muted)
+            self.cast_state.is_muted = muted
 
     # ── 媒体解析 ──
 

@@ -14,7 +14,7 @@ const currentDevice = computed(() => {
   if (!id) return null
   return deviceStore.devices.find(d => d.id === id) ?? null
 })
-const deviceName = computed(() => currentDevice.value?.name ?? '—')
+const deviceName = computed(() => currentDevice.value?.name ?? castStore.castState.device_id ?? '—')
 
 // ── Media type ──
 const mediaMimeType = computed(() => {
@@ -82,7 +82,7 @@ function toggleMute() {
 
 function onVolumeInput(e: Event) {
   const v = Number((e.target as HTMLInputElement).value)
-  castStore.castState.volume = v
+  castStore.setLocalVolume(v)
 }
 
 let _debounce: ReturnType<typeof setTimeout> | null = null
@@ -189,7 +189,7 @@ onMounted(async () => {
 
           <!-- Header -->
           <div class="ctrl__head">
-            <div class="ctrl__title">{{ t('controller.controlling') }}：{{ deviceName }}</div>
+            <div class="ctrl__title">{{ deviceName }}</div>
             <button class="ctrl__min" @click="castStore.minimizeController()" :title="t('controller.minimize')">
               <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="6" x2="10" y2="6"/></svg>
             </button>
@@ -207,7 +207,7 @@ onMounted(async () => {
               </div>
             </div>
             <div class="ctrl__name">{{ mediaTitle }}</div>
-            <button class="ctrl__stop" @click="castStore.stopCast()" :disabled="castStore.loading">
+            <button class="ctrl__stop" @click="castStore.stopCast(castStore.focusedDeviceId ?? undefined)" :disabled="castStore.loading">
               {{ t('cast.stop') }}
             </button>
           </template>
@@ -283,7 +283,7 @@ onMounted(async () => {
             </div>
 
             <!-- Stop -->
-            <button class="ctrl__stop" @click="castStore.stopCast()" :disabled="castStore.loading">
+            <button class="ctrl__stop" @click="castStore.stopCast(castStore.focusedDeviceId ?? undefined)" :disabled="castStore.loading">
               {{ t('cast.stop') }}
             </button>
           </template>

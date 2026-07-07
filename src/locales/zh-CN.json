@@ -62,5 +62,7 @@
   "controller.device": "设备",
   "controller.minimize": "最小化",
   "controller.close": "关闭",
-  "controller.noMedia": "无媒体"
+  "controller.noMedia": "无媒体",
+  "controller.prevDevice": "上一个设备",
+  "controller.nextDevice": "下一个设备"
 }

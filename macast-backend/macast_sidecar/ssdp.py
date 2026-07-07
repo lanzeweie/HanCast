@@ -335,8 +335,8 @@ class SSDPService:
         headers = dict(map(lambda x: (x[0].lower(), x[1]), headers))
 
         if cmd[0] != 'NOTIFY':
-            logger.info('SSDP command %s %s - from %s:%d' %
-                        (cmd[0], cmd[1], host, port))
+            logger.debug('SSDP command %s %s - from %s:%d' %
+                         (cmd[0], cmd[1], host, port))
 
         if cmd[0] == 'M-SEARCH' and cmd[1] == '*':
             self._discovery_request(headers, (host, port))
@@ -349,7 +349,7 @@ class SSDPService:
         (host, port) = host_port
         st = headers.get('st', '')
 
-        logger.info('Discovery request from (%s,%d) for %s' %
+        logger.debug('Discovery request from (%s,%d) for %s' %
                      (host, port, st))
 
         for i in self._known.values():
@@ -378,7 +378,7 @@ class SSDPService:
                                     socket.AF_INET, socket.SOCK_DGRAM)
                                 send_sock.sendto(data, destination)
                                 send_sock.close()
-                                logger.info(
+                                logger.debug(
                                     "M-SEARCH response sent to %s:%d for %s (%d bytes)"
                                     % (destination[0], destination[1], st, len(data)))
                             except Exception as e:

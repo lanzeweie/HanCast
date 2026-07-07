@@ -28,12 +28,14 @@ const showRemove = ref(false)
 const renameInput = ref('')
 
 // ── Casting state for this device ──
+const deviceSession = computed(() => castStore.getSession(props.device.id))
 const isCastingToDevice = computed(() => {
-  return castStore.isCasting && castStore.castState.device_id === props.device.id
+  const s = deviceSession.value
+  return !!s && ['connecting', 'playing', 'paused'].includes(s.status)
 })
 
 const castingTitle = computed(() => {
-  const title = castStore.castState.media?.title ?? ''
+  const title = deviceSession.value?.media?.title ?? ''
   return title.length > 15 ? title.slice(0, 15) + '...' : title
 })
 
@@ -73,7 +75,7 @@ function onCast() {
 
 async function onRestoreController() {
   if (isCastingToDevice.value) {
-    castStore.restoreController()
+    castStore.restoreController(props.device.id)
   }
 }
 

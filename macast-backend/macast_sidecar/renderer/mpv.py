@@ -241,7 +241,7 @@ class MPVRenderer(Renderer):
                         self.mpv_sock,
                         _winapi.GENERIC_READ | _winapi.GENERIC_WRITE, 0,
                         _winapi.NULL, _winapi.OPEN_EXISTING,
-                        _winapi.FILE_FLAG_OVERLAPPED, _winapi.NULL)
+                        0, _winapi.NULL)
                     self.ipc_sock = PipeConnection(handler)
                 else:
                     self.ipc_sock = socket.socket(socket.AF_UNIX,

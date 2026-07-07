@@ -72,9 +72,11 @@ export const useCastStore = defineStore('cast', () => {
 
   function startPolling() {
     if (pollTimer) return
+    console.log('[Cast] Polling started')
     pollTimer = setInterval(async () => {
       try {
         const info = await getCastUrl()
+        console.log('[Cast] Poll:', info)
         const statusMap: Record<string, CastState['status']> = {
           PLAYING: 'playing',
           PAUSED: 'paused',

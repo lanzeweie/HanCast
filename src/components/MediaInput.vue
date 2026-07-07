@@ -19,14 +19,18 @@ const showDeviceModal = ref(false)
 
 // ── Media preview URL (asset:// protocol) ──
 
-let convertFileSrc: ((filePath: string, protocol?: string) => string) | null = null
+const convertFileSrc = ref<((filePath: string, protocol?: string) => string) | null>(null)
 
 const mediaPreviewUrl = computed(() => {
   const info = mediaStore.mediaInfo
   if (!info) return null
+
+  // Prefer thumbnail (e.g. Bilibili cover image, already proxied)
+  if (info.thumbnail) return info.thumbnail
+
   // Local file in Tauri → asset:// URL
-  if (inTauri && info.media_type === 'file' && convertFileSrc) {
-    return convertFileSrc(info.uri)
+  if (inTauri && info.media_type === 'file' && convertFileSrc.value) {
+    return convertFileSrc.value(info.uri)
   }
   // Local file in browser → blob URL from File object
   if (!inTauri && info.media_type === 'file' && mediaStore.localFile) {
@@ -69,6 +73,11 @@ const categoryLabel = computed(() => {
     case 'audio': return t('media.audio')
     case 'link': return t('media.link')
   }
+})
+
+const mediaTitle = computed(() => {
+  const title = mediaStore.mediaInfo?.title ?? ''
+  return title.length > 30 ? title.slice(0, 30) + '...' : title
 })
 
 // ── Formatters ──
@@ -156,7 +165,7 @@ onMounted(async () => {
   if (window.__TAURI_INTERNALS__) {
     try {
       const core = await import('@tauri-apps/api/core')
-      convertFileSrc = core.convertFileSrc
+      convertFileSrc.value = core.convertFileSrc
       inTauri = true
       console.log('[MediaInput] Tauri runtime detected')
     } catch {
@@ -211,9 +220,8 @@ async function onParse() {
   await mediaStore.parseUrl()
 }
 
-const hasTarget = computed(() => {
-  return !!(deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.status === 'online'))
-})
+// 按钮是否可用：有在线设备即可点击
+const hasTarget = computed(() => onlineDevices.value.length > 0)
 
 /** Online devices available for casting */
 const onlineDevices = computed(() => {
@@ -221,15 +229,19 @@ const onlineDevices = computed(() => {
 })
 
 async function onCast() {
-  const device = deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.status === 'online')
-  if (device && mediaStore.mediaInfo) {
-    await castStore.startCast(device.id, mediaStore.mediaInfo.uri, {
+  // No default device → show selection modal
+  const defaultDevice = deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.is_default && d.status === 'online')
+  if (!defaultDevice) {
+    showDeviceModal.value = true
+    return
+  }
+  // Has default device → cast directly
+  if (mediaStore.mediaInfo) {
+    await castStore.startCast(defaultDevice.id, mediaStore.mediaInfo.uri, {
       title: mediaStore.mediaInfo.title,
       mime_type: mediaStore.mediaInfo.mime_type,
+      thumbnail: mediaStore.mediaInfo.thumbnail,
     })
-  } else if (!device && onlineDevices.value.length > 0) {
-    // No default device, but online devices exist — show selection modal
-    showDeviceModal.value = true
   }
 }
 
@@ -239,6 +251,7 @@ async function onSelectDevice(deviceId: string) {
     await castStore.startCast(deviceId, mediaStore.mediaInfo.uri, {
       title: mediaStore.mediaInfo.title,
       mime_type: mediaStore.mediaInfo.mime_type,
+      thumbnail: mediaStore.mediaInfo.thumbnail,
     })
   }
 }
@@ -349,18 +362,12 @@ function onFileSelected(e: Event) {
 
       <!-- Left: preview thumbnail -->
       <div class="media-input__preview-left">
+        <!-- thumbnail (image) -->
         <img
-          v-if="mediaPreviewUrl && mediaCategory === 'image'"
+          v-if="mediaPreviewUrl"
           :src="mediaPreviewUrl"
           class="media-input__thumb"
           :alt="mediaStore.mediaInfo?.title"
-        />
-        <video
-          v-else-if="mediaPreviewUrl && mediaCategory === 'video'"
-          :src="mediaPreviewUrl"
-          class="media-input__thumb"
-          preload="metadata"
-          muted
         />
         <span v-else class="media-input__preview-icon">{{ categoryIcon }}</span>
       </div>
@@ -368,7 +375,7 @@ function onFileSelected(e: Event) {
       <!-- Right: info + actions -->
       <div class="media-input__preview-right">
         <div class="media-input__preview-info">
-          <span class="media-input__preview-title">{{ mediaStore.mediaInfo?.title }}</span>
+          <span class="media-input__preview-title" :title="mediaStore.mediaInfo?.title">{{ mediaTitle }}</span>
           <span class="media-input__preview-sub">{{ mediaSubtitle }}</span>
         </div>
         <button
@@ -601,9 +608,10 @@ function onFileSelected(e: Event) {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .media-input__preview-sub {

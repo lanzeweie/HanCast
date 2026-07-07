@@ -1,7 +1,7 @@
 import type { MediaInfo } from './media'
 
 export interface CastState {
-  status: 'idle' | 'connecting' | 'playing' | 'paused' | 'error'
+  status: 'idle' | 'connecting' | 'playing' | 'paused' | 'stopped' | 'error'
   device_id: string | null
   media: MediaInfo | null
   position: number

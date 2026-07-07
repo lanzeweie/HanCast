@@ -32,6 +32,11 @@ const isCastingToDevice = computed(() => {
   return castStore.isCasting && castStore.castState.device_id === props.device.id
 })
 
+const castingTitle = computed(() => {
+  const title = castStore.castState.media?.title ?? ''
+  return title.length > 15 ? title.slice(0, 15) + '...' : title
+})
+
 function onDocClick(e: MouseEvent) {
   if (showMenu.value && menuWrapRef.value && !menuWrapRef.value.contains(e.target as Node)) {
     showMenu.value = false
@@ -62,6 +67,7 @@ function onCast() {
   castStore.startCast(props.device.id, mediaStore.mediaInfo.uri, {
     title: mediaStore.mediaInfo.title,
     mime_type: mediaStore.mediaInfo.mime_type,
+    thumbnail: mediaStore.mediaInfo.thumbnail,
   })
 }
 
@@ -135,18 +141,20 @@ function toggleMenu() {
     </label>
 
     <div class="device-card__actions">
-      <!-- Small window icon (restore controller) -->
-      <button
-        v-if="isCastingToDevice"
-        class="device-card__window-icon"
-        @click.stop="onRestoreController"
-        :title="t('devices.restoreController')"
-      >
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5">
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <path d="M8 21h8M12 17v4" />
-        </svg>
-      </button>
+      <!-- Casting: truncated video title + window icon -->
+      <template v-if="isCastingToDevice">
+        <span class="device-card__casting-name">{{ castingTitle }}</span>
+        <button
+          class="device-card__window-icon"
+          @click.stop="onRestoreController"
+          :title="t('devices.restoreController')"
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+          </svg>
+        </button>
+      </template>
 
       <!-- Normal cast button -->
       <button
@@ -375,6 +383,16 @@ function toggleMenu() {
 .device-card--casting {
   background: linear-gradient(135deg, var(--bg-card), rgba(251, 191, 36, 0.1));
   border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.device-card__casting-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #D97706;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .device-card__window-icon {

@@ -1,7 +1,12 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { MediaInfo, MediaInputState } from '@/types/media'
-import { parseMediaFile } from '@/api/commands'
+import { parseMediaFile, resolveBilibili } from '@/api/commands'
+
+/** Check if URL is a Bilibili link */
+function isBilibiliUrl(url: string): boolean {
+  return /bilibili\.com|b23\.tv|bilibili\.tv/i.test(url)
+}
 
 /** Infer MIME type from filename extension */
 function inferMime(name: string): string {
@@ -94,6 +99,14 @@ export const useMediaStore = defineStore('media', () => {
     state.value = 'parsing'
     error.value = null
     try {
+      // Bilibili: resolve via backend
+      if (isBilibiliUrl(targetUrl)) {
+        const result = await resolveBilibili(targetUrl)
+        mediaInfo.value = result
+        state.value = 'ready'
+        return
+      }
+
       const parsed = new URL(targetUrl)
       const pathParts = parsed.pathname.split('/')
       const title = decodeURIComponent(pathParts[pathParts.length - 1]) || targetUrl

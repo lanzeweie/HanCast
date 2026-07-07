@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useCastStore } from '@/stores/cast'
 import { useDeviceStore } from '@/stores/device'
@@ -41,12 +41,22 @@ const isPlayable = computed(() => mediaMimeType.value.startsWith('video/') || me
 const mediaTitle = computed(() => castStore.castState.media?.title ?? '')
 
 // ── Preview ──
-let convertFileSrc: ((path: string, protocol?: string) => string) | null = null
+const convertFileSrc = ref<((path: string, protocol?: string) => string) | null>(null)
 const previewUrl = computed(() => {
   const info = castStore.castState.media
-  if (!info?.uri) return null
-  if (convertFileSrc && !info.uri.startsWith('http')) return convertFileSrc(info.uri)
-  if (info.uri.startsWith('http')) return info.uri
+  if (!info) return null
+
+  // Prefer thumbnail (e.g. Bilibili cover image, already proxied)
+  if (info.thumbnail) return info.thumbnail
+
+  // Local file → asset:// URL
+  if (info.uri && convertFileSrc.value && !info.uri.startsWith('http')) {
+    return convertFileSrc.value(info.uri)
+  }
+
+  // Remote URL (direct image links)
+  if (info.uri?.startsWith('http')) return info.uri
+
   return null
 })
 
@@ -59,18 +69,64 @@ async function togglePlayPause() {
 }
 
 // ── Volume ──
-let _invoke: ((cmd: string, args?: any) => Promise<any>) | null = null
-async function setVolume(e: Event) {
+function onVolumeInput(e: Event) {
   const v = Number((e.target as HTMLInputElement).value)
-  if (!_invoke) {
-    _invoke = (await import('@tauri-apps/api/core')).invoke
+  castStore.castState.volume = v
+}
+
+let _debounce: ReturnType<typeof setTimeout> | null = null
+function onVolumeChange(e: Event) {
+  const v = Number((e.target as HTMLInputElement).value)
+  if (_debounce) clearTimeout(_debounce)
+  _debounce = setTimeout(() => {
+    castStore.setVolume(v)
+  }, 50)
+}
+
+// ── Progress bar ──
+const progress = computed(() => {
+  const dur = castStore.durationSeconds
+  if (dur <= 0) return 0
+  return Math.min(100, (castStore.positionSeconds / dur) * 100)
+})
+
+function formatTime(seconds: number): string {
+  if (seconds <= 0) return '00:00'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  if (h > 0) return `${h}:${mm}:${ss}`
+  return `${mm}:${ss}`
+}
+
+const displayPosition = computed(() => formatTime(castStore.positionSeconds))
+const displayDuration = computed(() => formatTime(castStore.durationSeconds))
+const canSeek = computed(() => castStore.isCasting)
+
+let _seekDebounce: ReturnType<typeof setTimeout> | null = null
+function onSeekInput(e: Event) {
+  // 拖动中：只更新视觉位置（通过 CSS 或 local state）
+}
+
+function onSeekChange(e: Event) {
+  const val = Number((e.target as HTMLInputElement).value)
+  if (castStore.durationSeconds > 0) {
+    const targetSeconds = (val / 100) * castStore.durationSeconds
+    const h = Math.floor(targetSeconds / 3600)
+    const m = Math.floor((targetSeconds % 3600) / 60)
+    const s = Math.floor(targetSeconds % 60)
+    const hh = String(h).padStart(2, '0')
+    const mm = String(m).padStart(2, '0')
+    const ss = String(s).padStart(2, '0')
+    castStore.seek(`${hh}:${mm}:${ss}`)
   }
-  await _invoke('set_volume', { volume: v })
 }
 
 onMounted(async () => {
   if (window.__TAURI_INTERNALS__) {
-    try { convertFileSrc = (await import('@tauri-apps/api/core')).convertFileSrc } catch {}
+    try { convertFileSrc.value = (await import('@tauri-apps/api/core')).convertFileSrc } catch {}
   }
 })
 </script>
@@ -89,8 +145,18 @@ onMounted(async () => {
             </button>
           </div>
 
-          <!-- Image mode: only stop -->
+          <!-- Image mode: preview + stop -->
           <template v-if="isImage">
+            <!-- Image preview -->
+            <div class="ctrl__thumb">
+              <img v-if="previewUrl" :src="previewUrl" class="ctrl__thumb-img" :alt="mediaTitle" />
+              <div v-else class="ctrl__thumb-ph">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".2">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                </svg>
+              </div>
+            </div>
+            <div class="ctrl__name">{{ mediaTitle }}</div>
             <button class="ctrl__stop" @click="castStore.stopCast()" :disabled="castStore.loading">
               {{ t('cast.stop') }}
             </button>
@@ -111,6 +177,16 @@ onMounted(async () => {
             <!-- Filename -->
             <div class="ctrl__name">{{ mediaTitle }}</div>
 
+            <!-- Progress bar -->
+            <div v-if="canSeek" class="ctrl__progress">
+              <span class="ctrl__time">{{ displayPosition }}</span>
+              <input type="range" class="ctrl__seek-bar" min="0" max="100" step="0.5"
+                :value="progress"
+                @input.stop="onSeekInput"
+                @change.stop="onSeekChange" />
+              <span class="ctrl__time">{{ displayDuration }}</span>
+            </div>
+
             <!-- Volume -->
             <div class="ctrl__vol">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -119,7 +195,8 @@ onMounted(async () => {
               </svg>
               <input type="range" class="ctrl__vol-bar" min="0" max="100"
                 :value="castStore.castState.is_muted ? 0 : castStore.castState.volume"
-                @input.stop="setVolume" />
+                @input.stop="onVolumeInput"
+                @change.stop="onVolumeChange" />
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
                 <path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
@@ -243,6 +320,43 @@ onMounted(async () => {
   width: 100%;
 }
 
+/* ── Progress ── */
+.ctrl__progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.ctrl__time {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+  min-width: 32px;
+  text-align: center;
+  user-select: none;
+}
+
+.ctrl__seek-bar {
+  flex: 1;
+  height: 3px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #D1D5DB;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.ctrl__seek-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--primary, #3B82F6);
+}
+
 /* ── Volume ── */
 .ctrl__vol {
   display: flex;
@@ -338,5 +452,7 @@ onMounted(async () => {
   .ctrl__pb-btn { color: #D1D5DB; }
   .ctrl__vol-bar { background: #4B5563; }
   .ctrl__vol-bar::-webkit-slider-thumb { background: #9CA3AF; }
+  .ctrl__seek-bar { background: #4B5563; }
+  .ctrl__seek-bar::-webkit-slider-thumb { background: #60A5FA; }
 }
 </style>

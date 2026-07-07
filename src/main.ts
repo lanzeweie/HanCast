@@ -8,6 +8,13 @@ import zhCN from './locales/zh-CN.json'
 import enUS from './locales/en-US.json'
 import './styles/global.css'
 
+// Apply theme before first paint to avoid flash
+;(() => {
+  const mode = localStorage.getItem('hancast-theme') || 'system'
+  const isDark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+})()
+
 const i18n = createI18n({
   legacy: false,
   locale: 'zh-CN',

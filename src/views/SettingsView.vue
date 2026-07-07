@@ -3,10 +3,12 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
+import { useThemeStore, type ThemeMode } from '@/stores/theme'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const settingsStore = useSettingsStore()
+const themeStore = useThemeStore()
 
 const friendlyName = ref('')
 
@@ -21,6 +23,10 @@ function goBack() {
 
 function onLanguageChange(lang: string) {
   locale.value = lang
+}
+
+function onThemeChange(mode: ThemeMode) {
+  themeStore.apply(mode)
 }
 
 async function saveFriendlyName() {
@@ -43,6 +49,19 @@ async function saveFriendlyName() {
       <!-- General -->
       <section class="settings__section">
         <h3 class="settings__section-title">{{ t('settings.general') }}</h3>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('theme.title') }}</span>
+          <select
+            class="settings__select"
+            :value="themeStore.mode"
+            @change="onThemeChange(($event.target as HTMLSelectElement).value as ThemeMode)"
+          >
+            <option value="system">{{ t('theme.system') }}</option>
+            <option value="light">{{ t('theme.light') }}</option>
+            <option value="dark">{{ t('theme.dark') }}</option>
+          </select>
+        </div>
 
         <div class="settings__item">
           <span class="settings__label">{{ t('settings.language') }}</span>

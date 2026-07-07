@@ -1,7 +1,11 @@
 {
   "common.cancel": "取消",
   "common.confirm": "确定",
-  "app.title": "Macast",
+  "app.title": "HanCast",
+  "theme.title": "外观",
+  "theme.system": "跟随系统",
+  "theme.light": "浅色",
+  "theme.dark": "深色",
   "media.dragHint": "拖拽媒体文件到此处",
   "media.pasteHint": "或粘贴媒体链接",
   "media.linkPlaceholder": "支持视频 / 图片 / 音乐链接",

@@ -1,7 +1,11 @@
 {
   "common.cancel": "Cancel",
   "common.confirm": "Confirm",
-  "app.title": "Macast",
+  "app.title": "HanCast",
+  "theme.title": "Appearance",
+  "theme.system": "System",
+  "theme.light": "Light",
+  "theme.dark": "Dark",
   "media.dragHint": "Drag media files here",
   "media.pasteHint": "or paste a media link",
   "media.linkPlaceholder": "Video / Image / Audio link",

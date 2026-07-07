@@ -6,7 +6,7 @@ import { getSettings, saveSettings as apiSaveSettings } from '@/api/commands'
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings>({
     usn: '',
-    friendly_name: 'Macast',
+    friendly_name: 'HanCast',
     version: '2.0.0',
     media_port: 8080,
     default_device: null,

@@ -3,7 +3,7 @@
   --primary: #3B82F6;
   --primary-hover: #2563EB;
   --primary-active: #1D4ED8;
-  --primary-light: rgba(59, 130, 246, 0.1);
+  --primary-light: rgba(59, 130, 246, 0.08);
 
   /* ── Background (配合系统特效) ── */
   --bg-primary: rgba(255, 255, 255, 0.95);
@@ -61,17 +61,25 @@
 
 /* ── Dark Theme ── */
 [data-theme="dark"] {
-  --bg-primary: rgba(17, 24, 39, 0.95);
-  --bg-secondary: rgba(31, 41, 55, 0.95);
-  --bg-card: rgba(31, 41, 55, 0.98);
-  --bg-input: rgba(55, 65, 81, 0.92);
+  --primary: #6366F1;
+  --primary-hover: #4F46E5;
+  --primary-active: #4338CA;
+  --primary-light: rgba(99, 102, 241, 0.12);
 
-  --text-primary: #F9FAFB;
-  --text-secondary: #D1D5DB;
-  --text-tertiary: #6B7280;
+  --bg-primary: rgba(22, 20, 50, 0.95);
+  --bg-secondary: rgba(32, 30, 66, 0.95);
+  --bg-card: rgba(32, 30, 66, 0.98);
+  --bg-input: rgba(42, 40, 80, 0.92);
 
-  --border: #374151;
-  --border-dashed: #4B5563;
+  --text-primary: #F0EFF5;
+  --text-secondary: #B8B5CC;
+  --text-tertiary: #6E6B8A;
+
+  --text-link: #818CF8;
+
+  --border: rgba(99, 102, 241, 0.15);
+  --border-focus: #6366F1;
+  --border-dashed: rgba(99, 102, 241, 0.25);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);

@@ -82,8 +82,8 @@ const MOCK_DEVICES: Device[] = [
 ]
 
 const MOCK_SETTINGS: AppSettings = {
-  usn: 'macast-uuid-001',
-  friendly_name: 'Macast',
+  usn: 'hancast-uuid-001',
+  friendly_name: 'HanCast',
   version: '2.0.0',
   media_port: 8080,
   default_device: null,

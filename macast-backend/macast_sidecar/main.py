@@ -22,7 +22,7 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # 初始化根 logger（控制台 + 文件输出）
-setup_logger("macast", level=logging.DEBUG)
+setup_logger("macast", level=logging.INFO)
 logger = get_logger("macast.sidecar")
 
 

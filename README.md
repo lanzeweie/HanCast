@@ -184,81 +184,6 @@ Macast-Han/
 
 ---
 
-## 二次开发指南
-
-### 添加新的 Tauri 命令
-
-1. **Rust 端** — 在 `src-tauri/src/lib.rs` 中定义命令函数并注册：
-
-```rust
-#[tauri::command]
-async fn my_new_command(app: tauri::AppHandle, param: String) -> Result<String, String> {
-    let manager = app.state::<SidecarManager>();
-    let resp = manager.send_command("my_new_command", serde_json::json!({"param": param})).await;
-    if resp.success {
-        Ok(serde_json::from_value(resp.data).unwrap_or_default())
-    } else {
-        Err(resp.error.unwrap_or("Unknown error".into()))
-    }
-}
-
-// 在 invoke_handler 中注册
-.invoke_handler(tauri::generate_handler![..., my_new_command])
-```
-
-2. **Python 端** — 在 `macast-backend/macast_sidecar/commands.py` 的 `CommandHandler` 中添加处理：
-
-```python
-def handle_my_new_command(self, params: dict) -> Any:
-    param = params.get("param", "")
-    # 业务逻辑
-    return {"result": "ok"}
-```
-
-3. **前端** — 在 `src/api/commands.ts` 中添加封装：
-
-```typescript
-export async function myNewCommand(param: string): Promise<string> {
-  return invoke<string>('my_new_command', { param })
-}
-```
-
-### 添加新的投屏协议
-
-1. 在 `macast-backend/macast_sidecar/protocol/` 下创建新协议模块
-2. 实现设备发现、连接、控制接口
-3. 在 `commands.py` 中集成新协议的命令
-
-### 添加新的播放器
-
-1. 在 `macast-backend/macast_sidecar/renderer/` 下继承 `BaseRenderer`
-2. 实现 `play`、`pause`、`stop`、`seek` 等方法
-3. 在 `commands.py` 中切换渲染器
-
-### 添加新的前端组件
-
-1. 在 `src/components/` 下创建 Vue 组件
-2. 在 `src/stores/` 下添加 Pinia store 管理状态
-3. 在 `src/locales/` 下添加多语言翻译
-
-### 调试技巧
-
-```bash
-# Python 日志级别调整
-# 修改 macast-backend/macast_sidecar/main.py
-setup_logger("macast", level=logging.DEBUG)
-
-# 日志文件位置
-# Windows: %APPDATA%\Macast\logs\macast.log
-# macOS:   ~/Library/Application Support/Macast/logs/macast.log
-# Linux:   ~/.config/macast/logs/macast.log
-
-# 浏览器开发者工具（前端调试）
-# 开发模式下右键 → 检查元素
-```
-
----
-
 ## 设计文档
 
 | 文档 | 说明 |
@@ -273,3 +198,11 @@ setup_logger("macast", level=logging.DEBUG)
 ## 许可证
 
 [GPL-3.0](LICENSE) — 基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 二次开发，继承原项目协议。
+
+---
+
+## 致谢
+
+- [xfangfang/Macast](https://github.com/xfangfang/Macast) — 原始项目
+- [Tauri](https://tauri.app/) — 跨平台桌面应用框架
+- [akFace/mpv.config](https://github.com/akFace/mpv.config) — MPV 主题皮肤（modernz）

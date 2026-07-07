@@ -138,11 +138,6 @@ class MPVRenderer(Renderer):
         """Update player state from mpv"""
         res = json.loads(res)
         logger.debug(f"MPV STATE: {res}")
-        # 关键属性变化用 info 级别，方便排查进度问题
-        if 'event' in res and res['event'] == 'property-change':
-            prop_name = res.get('name', '')
-            if prop_name in ('time-pos', 'duration'):
-                logger.info(f"MPV 属性变化: {prop_name} = {res.get('data')}")
         if 'id' in res:
             if res['id'] == ObserveProperty.volume.value:
                 logger.info(res)
@@ -218,6 +213,10 @@ class MPVRenderer(Renderer):
     def send_command(self, command):
         """Sending command to mpv"""
         logger.info(f"MPV CMD: {command}")
+        # 检查 MPV 进程是否存活
+        if self.proc and self.proc.poll() is not None:
+            logger.error(f"MPV 进程已退出 (code={self.proc.returncode})，跳过命令")
+            return False
         data = {"command": command}
         msg = json.dumps(data) + '\n'
         with self.command_lock:
@@ -247,7 +246,7 @@ class MPVRenderer(Renderer):
                         self.mpv_sock,
                         _winapi.GENERIC_READ | _winapi.GENERIC_WRITE, 0,
                         _winapi.NULL, _winapi.OPEN_EXISTING,
-                        0, _winapi.NULL)
+                        _winapi.FILE_FLAG_OVERLAPPED, _winapi.NULL)
                     self.ipc_sock = PipeConnection(handler)
                 else:
                     self.ipc_sock = socket.socket(socket.AF_UNIX,

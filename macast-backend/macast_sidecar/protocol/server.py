@@ -121,7 +121,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
 
             # 解析 SOAP action
             soap_action = self.headers.get('SOAPAction', '')
-            logger.info(f"SOAP Action: {soap_action}")
+            logger.debug(f"SOAP Action: {soap_action}")
             logger.debug(f"SOAP Body: {body.decode('utf-8', errors='ignore')}")
 
             # 委托给 command_handler 的 protocol 处理 SOAP

@@ -421,7 +421,7 @@ class DLNAProtocol:
         """Sending the states in the stateChangeList to the clients which subscribe to them."""
         if not bool(state_change_list):
             return
-        logger.info(f"EVENT: state_change={list(state_change_list.keys())}, "
+        logger.debug(f"EVENT: state_change={list(state_change_list.keys())}, "
                     f"subscribers={len(self.event_subscribes)}")
         # remove offline clients
         while not self.removed_device_queue.empty():
@@ -485,7 +485,7 @@ class DLNAProtocol:
         ns = etree.QName(root.tag).namespace
         service = ns.split(":")[3] if ns else ""
         method = f"{service}_{action}"
-        logger.info(f"SOAP: {method} params={param}")
+        logger.debug(f"SOAP: {method} params={param}")
         res = {}
         service_type = Service.get(service)
         if action not in service_type.actions:
@@ -517,8 +517,8 @@ class DLNAProtocol:
             output = service_type.actions[action].output
             for arg in output:
                 res[arg.name] = self.state_list[arg.state].value
-        if method not in ['ConnectionManager_GetProtocolInfo', 'AVTransport_GetPositionInfo']:
-            logger.info(f"res: {res}")
+        if method not in ['ConnectionManager_GetProtocolInfo', 'AVTransport_GetPositionInfo', 'AVTransport_GetTransportInfo']:
+            logger.debug(f"res: {res}")
 
         # build response xml
         ns = 'http://schemas.xmlsoap.org/soap/envelope/'
@@ -611,12 +611,13 @@ class DLNAProtocol:
         self.set_state('CurrentTrackURI', uri)
         self.set_state('RelativeTimePosition', '00:00:00')
         self.set_state('AbsoluteTimePosition', '00:00:00')
-        self.set_state('TransportState', 'PAUSED_PLAYBACK')
+        self.set_state('TransportState', 'PLAYING')
         self.set_state('TransportStatus', 'OK')
-        # 调用渲染器加载媒体
+        # 调用渲染器加载媒体并自动播放
         if self._renderer:
             self._renderer.set_media_url(uri)
             self._renderer.set_media_title(title)
+            self._renderer.set_media_resume()
         return {}
 
     def AVTransport_Play(self, data):
@@ -731,10 +732,24 @@ class DLNAProtocol:
         if not self._device:
             return
 
+        url = f"http://{self._device.ip}:{self._device.port}/description.xml"
         try:
             # 获取设备描述 XML
-            resp = requests.get(f"http://{self._device.ip}:{self._device.port}/description.xml", timeout=5)
-            root = etree.fromstring(resp.content)
+            resp = requests.get(url, timeout=5)
+            logger.debug(f"Device description response: status={resp.status_code}, length={len(resp.content)}")
+
+            # 检查响应内容
+            if not resp.content:
+                logger.error(f"Empty response from device: {self._device.ip}:{self._device.port}")
+                return
+
+            # 尝试解析 XML
+            try:
+                root = etree.fromstring(resp.content)
+            except etree.XMLSyntaxError as xml_err:
+                logger.error(f"Invalid XML from device {self._device.ip}:{self._device.port}: {xml_err}")
+                logger.debug(f"Response content: {resp.content[:500]}")
+                return
 
             # 查找 AVTransport 服务
             ns = {"upnp": "urn:schemas-upnp-org:device-1-0"}
@@ -748,8 +763,10 @@ class DLNAProtocol:
                         self._control_url = f"http://{self._device.ip}:{self._device.port}{control_url}"
                         logger.debug(f"Control URL: {self._control_url}")
                         break
+        except requests.RequestException as req_err:
+            logger.error(f"Failed to connect to device {self._device.ip}:{self._device.port}: {req_err}")
         except Exception as e:
-            logger.error(f"Failed to resolve control URL: {e}")
+            logger.error(f"Failed to resolve control URL from {url}: {e}")
 
     def get_position_info(self) -> dict:
         """查询远程设备的播放进度 (GetPositionInfo)"""

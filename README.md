@@ -174,3 +174,4 @@ npm run tauri build
 - [xfangfang/Macast](https://github.com/xfangfang/Macast) — 原始项目，本项目的基础
 - [Tauri](https://tauri.app/) — 跨平台桌面应用框架
 - [DLNA/UPnP](https://www.dlna.org/) — 局域网投屏协议
+- [akFace/mpv.config](https://github.com/akFace/mpv.config) — MPV 主题皮肤（modernz）

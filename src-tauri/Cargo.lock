@@ -1282,6 +1282,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hancast"
+version = "2.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "mime_guess",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-shell",
+ "tokio",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1833,22 +1849,6 @@ name = "log"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
-
-[[package]]
-name = "macast-han"
-version = "2.0.0"
-dependencies = [
- "base64 0.22.1",
- "mime_guess",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-shell",
- "tokio",
-]
 
 [[package]]
 name = "markup5ever"

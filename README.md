@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="120" alt="Macast-Han Logo">
+  <img src="src-tauri/icons/icon.png" width="120" alt="HanCast Logo">
 </p>
 
-<h1 align="center">Macast-Han</h1>
+<h1 align="center">HanCast</h1>
 
 <p align="center">
   跨平台投屏应用 — 将媒体投屏到局域网设备，或从手机投屏到电脑
@@ -96,8 +96,8 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-username/Macast-Han.git
-cd Macast-Han
+git clone https://github.com/your-username/HanCast.git
+cd HanCast
 
 # 2. 安装前端依赖
 npm install
@@ -139,14 +139,14 @@ npm run tauri build
 - **MSI 安装包** — Windows 静默安装
 - **NSIS 安装包** — Windows 交互式安装
 
-> **注意**: 直接运行 `macast-han.exe` 会闪退，因为它依赖 Python Sidecar。开发测试请用 `npm run tauri dev`。
+> **注意**: 直接运行 `hancast.exe` 会闪退，因为它依赖 Python Sidecar。开发测试请用 `npm run tauri dev`。
 
 ---
 
 ## 项目结构
 
 ```
-Macast-Han/
+HanCast/
 ├── src/                        # Vue 3 前端
 │   ├── components/             # UI 组件
 │   │   ├── TitleBar.vue        # 自定义标题栏
@@ -181,6 +181,56 @@ Macast-Han/
 │
 └── docs/                       # 设计文档
 ```
+
+---
+
+## 开发工具与技能
+
+本项目使用以下 AI 辅助开发工具与方法论：
+
+### BMad Method
+
+[BMad Method](https://github.com/bmadcode/BMad-Method) — 结构化产品开发方法论，覆盖从需求分析到实现的全流程。
+
+| 阶段 | 技能 | 说明 |
+|------|------|------|
+| 分析 | `bmad-brainstorming` | 头脑风暴，多角度创意发散 |
+| 分析 | `bmad-forge-idea` | 想法拷问 — 通过角色扮演压力测试，直到想法成熟或廉价失败 |
+| 分析 | `bmad-prfaq` | Working Backwards PRFAQ 挑战，从客户视角验证产品概念 |
+| 分析 | `bmad-product-brief` | 产品简报创建与验证 |
+| 分析 | `bmad-document-project` | 为 AI 上下文生成项目文档 |
+| 规划 | `bmad-prd` | 产品需求文档（PRD）创建、编辑与验证 |
+| 规划 | `bmad-ux` | UX 设计规范与模式规划 |
+| 方案 | `bmad-architecture` | 技术架构设计 — 不变量的精简脊柱 |
+| 方案 | `bmad-create-epics-and-stories` | 需求拆分为 Epic 和用户故事 |
+| 实现 | `bmad-dev-story` | 按故事规范执行代码实现 |
+| 实现 | `bmad-quick-dev` | 快速实现任意需求、Bug 修复或重构 |
+| 实现 | `bmad-code-review` | 对抗性代码审查（盲猎人 + 边界猎人 + 验收审计） |
+| 审查 | `bmad-review-adversarial-general` | 愤世嫉俗式审查，产出问题报告 |
+| 审查 | `bmad-review-edge-case-hunter` | 边界条件穷举分析 |
+
+### 知识图谱
+
+[Understand Anything](https://github.com/understand-anything/understand-anything) — 自动生成项目代码知识图谱，可视化文件依赖、函数调用、模块层级关系。
+
+```bash
+# 生成知识图谱
+/understand-anything:understand
+
+# 启动可视化仪表板
+/understand-anything:understand-dashboard
+```
+
+### Claude Code
+
+[Anthropic Claude Code](https://claude.ai/code) — AI 编程助手，提供代码生成、审查、重构等能力。本项目的所有 AI 辅助开发均通过 Claude Code 进行。
+
+**使用的模型：**
+
+| 模型 | 用途 |
+|------|------|
+| `mimo-v2.5` | 主力模型 — 全场景开发 |
+| `mimo-v2.5-pro` | 备用模型 — 复杂任务、深度推理 |
 
 ---
 

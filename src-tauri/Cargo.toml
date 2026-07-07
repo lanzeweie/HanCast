@@ -1,13 +1,13 @@
 [package]
-name = "macast-han"
+name = "hancast"
 # version synced from tauri.conf.json
 version = "2.0.0"
-description = "Macast-Han: A cross-platform media casting application (fork of xfangfang/Macast)"
+description = "HanCast: A cross-platform media casting application (fork of xfangfang/Macast)"
 authors = ["Han"]
 edition = "2021"
 
 [lib]
-name = "macast_han_lib"
+name = "hancast_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

@@ -875,7 +875,7 @@ class DLNAProtocol:
             logger.debug("No control URL, skip action: %s", action)
             return None
 
-        logger.info(f"SOAP OUT → {self._control_url} | {action} | params={params}")
+        logger.debug(f"SOAP OUT → {self._control_url} | {action} | params={params}")
 
         # 构建 SOAP XML
         envelope = etree.Element(
@@ -913,7 +913,7 @@ class DLNAProtocol:
             logger.error(f"SOAP {action} failed to {self._control_url}: {e}")
             raise
 
-        logger.info(f"SOAP OUT ← {response.status_code} | {action}")
+        logger.debug(f"SOAP OUT ← {response.status_code} | {action}")
         return etree.fromstring(response.content)
 
 

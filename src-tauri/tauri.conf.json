@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicbarker/tauri/v2/core/tauri-config-schema/schema.json",
-  "productName": "Macast-Han",
+  "productName": "HanCast",
   "version": "2.0.0",
-  "identifier": "com.han.macast",
+  "identifier": "com.han.hancast",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,9 +14,9 @@
     "windows": [
       {
         "label": "main",
-        "title": "Macast-Han",
-        "width": 420,
-        "height": 600,
+        "title": "HanCast",
+        "width": 434,
+        "height": 634,
         "minWidth": 360,
         "minHeight": 480,
         "maxWidth": 800,

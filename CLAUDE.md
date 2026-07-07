@@ -1,10 +1,10 @@
-# CLAUDE.md — Macast-Han 项目指南
+# CLAUDE.md — HanCast 项目指南
 
 ## 项目概述
 
-**Macast-Han** 是基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 的二次开发项目，跨平台投屏应用，支持将媒体文件/链接投屏到局域网设备，同时可作为 DLNA 接收端。
+**HanCast** 是基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 的二次开发项目，跨平台投屏应用，支持将媒体文件/链接投屏到局域网设备，同时可作为 DLNA 接收端。
 
-- **项目名**: Macast-Han
+- **项目名**: HanCast
 - **作者**: Han
 - **版本**: 2.0.0
 - **性质**: 二次开发（非原项目官方更新）
@@ -79,7 +79,7 @@ G:\Code\Macast-Han\
 │   ├── build.rs                 # tauri_build::build()
 │   ├── icons/                   # 应用图标
 │   └── src/
-│       ├── main.rs              # 入口，调用 macast_han_lib::run()
+│       ├── main.rs              # 入口，调用 hancast_lib::run()
 │       ├── lib.rs               # Tauri 应用设置 + 20 个命令定义
 │       └── sidecar.rs           # Python Sidecar 管理器（stdin/stdout JSON）
 │

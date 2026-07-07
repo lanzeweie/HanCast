@@ -10,6 +10,7 @@ import {
   pauseCast as apiPauseCast,
   resumeCast as apiResumeCast,
   seekCast as apiSeekCast,
+  setVolume as apiSetVolume,
 } from '@/api/commands'
 
 /** Parse "HH:MM:SS" to total seconds */
@@ -77,7 +78,7 @@ export const useCastStore = defineStore('cast', () => {
         const statusMap: Record<string, CastState['status']> = {
           PLAYING: 'playing',
           PAUSED: 'paused',
-          STOPPED: 'idle',
+          STOPPED: 'stopped',
         }
         castState.value = {
           ...castState.value,
@@ -102,7 +103,7 @@ export const useCastStore = defineStore('cast', () => {
     }
   }
 
-  async function startCast(deviceId: string, mediaUri: string, mediaInfo?: { title?: string; mime_type?: string }) {
+  async function startCast(deviceId: string, mediaUri: string, mediaInfo?: { title?: string; mime_type?: string; thumbnail?: string | null }) {
     loading.value = true
     try {
       await apiStartCast(deviceId, mediaUri)
@@ -117,7 +118,7 @@ export const useCastStore = defineStore('cast', () => {
           mime_type: mediaInfo?.mime_type ?? '',
           file_size: null,
           duration: null,
-          thumbnail: null,
+          thumbnail: mediaInfo?.thumbnail ?? null,
         },
       }
       startPolling()
@@ -181,14 +182,48 @@ export const useCastStore = defineStore('cast', () => {
     }
   }
 
+  async function setVolume(volume: number): Promise<number> {
+    try {
+      const result = await apiSetVolume(volume)
+      castState.value = { ...castState.value, volume: result }
+      return result
+    } catch (err) {
+      console.error('Failed to set volume:', err)
+      return castState.value.volume
+    }
+  }
+
   // Set up event listeners
   async function setupListeners() {
     try {
       const { listen } = await import('@tauri-apps/api/event')
 
       unlistenFns.push(
-        await listen<CastState>('cast_state_changed', (event) => {
-          castState.value = event.payload
+        await listen<{ status: string; volume?: number; is_muted?: boolean }>('cast_state_changed', (event) => {
+          const { status } = event.payload
+          const mappedStatus: Record<string, CastState['status']> = {
+            PLAYING: 'playing',
+            PAUSED: 'paused',
+            STOPPED: 'stopped',
+            NO_MEDIA_PRESENT: 'idle',
+          }
+          const newStatus = mappedStatus[status] ?? status as CastState['status']
+
+          // Update volume/mute if provided
+          if (event.payload.volume !== undefined) {
+            castState.value.volume = event.payload.volume
+          }
+          if (event.payload.is_muted !== undefined) {
+            castState.value.is_muted = event.payload.is_muted
+          }
+
+          castState.value = { ...castState.value, status: newStatus }
+
+          // Video finished or device stopped
+          if (newStatus === 'stopped' || newStatus === 'idle') {
+            stopPolling()
+            showController.value = false
+          }
         })
       )
 
@@ -232,6 +267,7 @@ export const useCastStore = defineStore('cast', () => {
     pauseCast,
     resumeCast,
     seek,
+    setVolume,
     openController,
     minimizeController,
     restoreController,

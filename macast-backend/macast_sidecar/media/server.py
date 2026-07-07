@@ -4,23 +4,35 @@
 功能:
 - 将本地文件通过 HTTP 提供给 DLNA 设备访问
 - 支持 Range 请求 (视频拖拽)
+- 支持远程 URL 代理 (附加 Referer 头)
 - 自动端口选择
 """
 
 import os
+import re
 import hashlib
 import logging
 import threading
+import requests as http_requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 from typing import Dict, Tuple
 
 logger = logging.getLogger("macast.media.server")
 
 
+# 代理允许的域名白名单
+PROXY_ALLOWED_HOSTS = {
+    "bilivideo.com", "hdslb.com", "akamaized.net",
+    "bilibili.com", "biliapi.net",
+}
+
+
 class MediaHandler(BaseHTTPRequestHandler):
     """媒体文件 HTTP 处理器"""
 
-    served_files: Dict[str, str] = {}  # url_path → file_path
+    served_files: Dict[str, str] = {}        # url_path → file_path
+    proxy_targets: Dict[str, str] = {}       # url_path → remote_url
 
     def do_HEAD(self):
         """处理 HEAD 请求 (DLNA 设备用来探测文件)"""
@@ -39,6 +51,11 @@ class MediaHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # 代理路由: /proxy/{hash}?url=xxx
+        if self.path.startswith("/proxy/"):
+            self._handle_proxy()
+            return
+
         file_path = self.served_files.get(self.path)
         if not file_path or not os.path.exists(file_path):
             self.send_error(404)
@@ -99,6 +116,64 @@ class MediaHandler(BaseHTTPRequestHandler):
         mime, _ = mimetypes.guess_type(path)
         return mime or "application/octet-stream"
 
+    def _handle_proxy(self):
+        """处理代理请求: 从 proxy_targets 中查找远程 URL 并转发"""
+        # 从 proxy_targets 中查找
+        remote_url = self.proxy_targets.get(self.path)
+        if not remote_url:
+            self.send_error(404, "Proxy target not found")
+            return
+
+        # 安全校验: 只允许白名单域名
+        host = urlparse(remote_url).hostname or ""
+        if not any(host == h or host.endswith("." + h) for h in PROXY_ALLOWED_HOSTS):
+            self.send_error(403, "Forbidden domain")
+            return
+
+        # 构建转发请求头
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.bilibili.com/",
+            "Origin": "https://www.bilibili.com",
+        }
+        # 转发 Range 请求头
+        range_val = self.headers.get("Range")
+        if range_val:
+            headers["Range"] = range_val
+
+        try:
+            resp = http_requests.get(remote_url, headers=headers, timeout=30, stream=True)
+        except Exception as e:
+            logger.error(f"代理请求失败: {e}")
+            self.send_error(502, f"Proxy Error: {e}")
+            return
+
+        # 构建响应头
+        resp_headers = {
+            "Content-Type": resp.headers.get("Content-Type", "video/mp4"),
+            "Access-Control-Allow-Origin": "*",
+        }
+        # 透传 Range 相关头
+        for h in ("Content-Range", "Accept-Ranges", "Content-Length"):
+            if h in resp.headers:
+                resp_headers[h] = resp.headers[h]
+
+        # 发送响应
+        self.send_response(resp.status_code)
+        for k, v in resp_headers.items():
+            self.send_header(k, v)
+        self.end_headers()
+
+        # 流式转发响应体
+        try:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass  # 客户端断开连接，正常
+        finally:
+            resp.close()
+
     def log_message(self, format, *args):
         logger.debug(format % args)
 
@@ -151,6 +226,15 @@ class MediaServer:
 
         MediaHandler.served_files[url_path] = file_path
         self._served[url_path] = file_path
+
+        return f"http://{self._lan_ip}:{self.port}{url_path}"
+
+    def register_proxy(self, remote_url: str) -> str:
+        """注册远程 URL 代理，返回本地代理 URL"""
+        url_hash = hashlib.md5(remote_url.encode()).hexdigest()[:12]
+        url_path = f"/proxy/{url_hash}"
+
+        MediaHandler.proxy_targets[url_path] = remote_url
 
         return f"http://{self._lan_ip}:{self.port}{url_path}"
 

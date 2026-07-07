@@ -13,6 +13,7 @@ from .protocol.server import DLNAServer
 from .renderer.mpv import MPVRenderer
 from .media.parser import MediaParser
 from .media.server import MediaServer
+from .media.bili_resolver import BiliResolver
 from .types.device import Device
 from .types.media import MediaInfo
 from .types.cast import CastState
@@ -120,6 +121,7 @@ class CommandHandler:
 
             # 媒体解析
             "parse_media": self._parse_media,
+            "resolve_bilibili": self._resolve_bilibili,
 
             # 设置
             "get_settings": self._get_settings,
@@ -137,6 +139,9 @@ class CommandHandler:
 
     def _start_services(self):
         """启动 SSDP 和媒体服务器"""
+        # 注册 DLNA 状态变化回调 → 推送事件到前端
+        self.protocol.set_on_state_change(self._on_protocol_state_change)
+
         # 启动 DLNA 描述服务器
         self.dlna_server.start()
 
@@ -187,6 +192,39 @@ class CommandHandler:
     def _should_ignore_device(self, device_udn: str) -> bool:
         """检查设备是否应该被忽略（隐藏）"""
         return self.config.is_device_hidden(device_udn)
+
+    def _on_protocol_state_change(self, name: str, value) -> None:
+        """DLNA 状态变化回调 → 推送事件到前端"""
+        # 只关心 TransportState 变化
+        if name == "TransportState":
+            # 映射 DLNA 状态到前端状态
+            status_map = {
+                "PLAYING": "playing",
+                "PAUSED_PLAYBACK": "paused",
+                "STOPPED": "stopped",
+                "NO_MEDIA_PRESENT": "idle",
+                "TRANSITIONING": "connecting",
+            }
+            status = status_map.get(value, value)
+
+            # 更新 cast_state
+            self.cast_state.status = status
+
+            # 推送事件到前端
+            event_data = {
+                "status": status,
+                "device_id": self.cast_state.device_id,
+                "position": self.cast_state.position,
+                "volume": self.cast_state.volume,
+                "is_muted": self.cast_state.is_muted,
+            }
+            if self.cast_state.media:
+                event_data["media"] = self.cast_state.media.to_dict()
+
+            print(json.dumps({
+                "event": "cast_state_changed",
+                "data": event_data
+            }), flush=True)
 
     # ── 设备管理 ──
 
@@ -285,10 +323,11 @@ class CommandHandler:
             "status": transport or "STOPPED",
         }
 
-    def _set_volume(self, params: dict) -> None:
+    def _set_volume(self, params: dict) -> int:
         volume = params["volume"]
         self.protocol.set_volume(volume)
         self.cast_state.volume = volume
+        return volume
 
     def _set_mute(self, params: dict) -> None:
         muted = params["muted"]
@@ -304,6 +343,40 @@ class CommandHandler:
         else:
             info = self.media_parser.parse_url(params["url"])
         return info.to_dict()
+
+    def _resolve_bilibili(self, params: dict) -> dict:
+        """解析 B 站视频 URL，返回带本地代理的可播放信息"""
+        url = params["url"]
+        resolver = BiliResolver()
+
+        if not resolver.belongs_to(url):
+            raise ValueError(f"不是B站链接: {url}")
+
+        result = resolver.resolve(url)
+
+        # 将视频直链注册为本地代理 (附加 Referer 头)
+        proxy_url = self.media_server.register_proxy(result["video_url"])
+
+        # 将封面图也注册为本地代理 (B站 CDN 有防盗链)
+        cover_url = result.get("cover_url", "")
+        cover_proxy = self.media_server.register_proxy(cover_url) if cover_url else None
+
+        # 构建 MediaInfo
+        media_info = MediaInfo(
+            media_type="url",
+            uri=proxy_url,
+            title=result["title"],
+            mime_type="video/mp4",
+            file_size=None,
+            thumbnail=cover_proxy or cover_url,
+        )
+
+        return {
+            **media_info.to_dict(),
+            "author": result.get("author", ""),
+            "bvid": result.get("bvid", ""),
+            "cover_url": result.get("cover_url", ""),
+        }
 
     # ── 设置 ──
 

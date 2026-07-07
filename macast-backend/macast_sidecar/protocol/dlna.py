@@ -158,6 +158,10 @@ class DLNAProtocol:
         if renderer:
             renderer.set_protocol(self)
 
+    def set_on_state_change(self, callback):
+        """设置状态变化回调函数"""
+        self._on_state_change = callback
+
     def init_state(self):
         """初始化状态"""
         self.set_state('CurrentPlayMode', 'NORMAL')

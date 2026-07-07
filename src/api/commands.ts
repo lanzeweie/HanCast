@@ -200,6 +200,11 @@ export async function parseMediaUrl(url: string): Promise<MediaInfo> {
   return invoke<MediaInfo>('parse_media_url', { url })
 }
 
+export async function resolveBilibili(url: string): Promise<MediaInfo> {
+  const invoke = await initInvoke()
+  return invoke<MediaInfo>('resolve_bilibili', { url })
+}
+
 // Cast control
 export async function startCast(deviceId: string, mediaUri: string): Promise<void> {
   const invoke = await initInvoke()
@@ -236,9 +241,9 @@ export async function getCastUrl(): Promise<CastUrlInfo> {
   return invoke<CastUrlInfo>('get_cast_url')
 }
 
-export async function setVolume(volume: number): Promise<void> {
+export async function setVolume(volume: number): Promise<number> {
   const invoke = await initInvoke()
-  await invoke('set_volume', { volume })
+  return invoke<number>('set_volume', { volume })
 }
 
 export async function setMute(muted: boolean): Promise<void> {

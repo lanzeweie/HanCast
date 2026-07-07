@@ -102,6 +102,16 @@ async fn parse_media_url(
         .await
 }
 
+#[tauri::command]
+async fn resolve_bilibili(
+    sidecar: State<'_, SidecarManager>,
+    url: String,
+) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command("resolve_bilibili", serde_json::json!({"url": url}))
+        .await
+}
+
 // ── Cast control ──
 
 #[tauri::command]
@@ -162,11 +172,11 @@ async fn get_cast_url(sidecar: State<'_, SidecarManager>) -> Result<serde_json::
 }
 
 #[tauri::command]
-async fn set_volume(sidecar: State<'_, SidecarManager>, volume: u32) -> Result<(), String> {
-    sidecar
+async fn set_volume(sidecar: State<'_, SidecarManager>, volume: u32) -> Result<u32, String> {
+    let result = sidecar
         .send_command("set_volume", serde_json::json!({"volume": volume}))
         .await?;
-    Ok(())
+    Ok(result.as_u64().unwrap_or(volume as u64) as u32)
 }
 
 #[tauri::command]
@@ -341,6 +351,7 @@ pub fn run() {
             hide_device,
             parse_media_file,
             parse_media_url,
+            resolve_bilibili,
             start_cast,
             stop_cast,
             pause_cast,

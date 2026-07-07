@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Device } from '@/types/device'
 import { useDeviceStore } from '@/stores/device'
@@ -26,6 +26,11 @@ const menuWrapRef = ref<HTMLElement | null>(null)
 const showRename = ref(false)
 const showRemove = ref(false)
 const renameInput = ref('')
+
+// ── Casting state for this device ──
+const isCastingToDevice = computed(() => {
+  return castStore.isCasting && castStore.castState.device_id === props.device.id
+})
 
 function onDocClick(e: MouseEvent) {
   if (showMenu.value && menuWrapRef.value && !menuWrapRef.value.contains(e.target as Node)) {
@@ -54,7 +59,16 @@ function isOffline() {
 
 function onCast() {
   if (!isOnline() || !mediaStore.mediaInfo) return
-  castStore.startCast(props.device.id, mediaStore.mediaInfo.uri)
+  castStore.startCast(props.device.id, mediaStore.mediaInfo.uri, {
+    title: mediaStore.mediaInfo.title,
+    mime_type: mediaStore.mediaInfo.mime_type,
+  })
+}
+
+async function onRestoreController() {
+  if (isCastingToDevice.value) {
+    castStore.restoreController()
+  }
 }
 
 function onSetDefault() {
@@ -91,7 +105,13 @@ function toggleMenu() {
 </script>
 
 <template>
-  <div class="device-card" :class="{ 'device-card--offline': isOffline() }">
+  <div
+    class="device-card"
+    :class="{
+      'device-card--offline': isOffline(),
+      'device-card--casting': isCastingToDevice,
+    }"
+  >
     <span class="device-card__status" :style="{ background: getStatusColor(device.status) }" />
 
     <div class="device-card__info">
@@ -115,8 +135,22 @@ function toggleMenu() {
     </label>
 
     <div class="device-card__actions">
+      <!-- Small window icon (restore controller) -->
       <button
-        v-if="isOnline()"
+        v-if="isCastingToDevice"
+        class="device-card__window-icon"
+        @click.stop="onRestoreController"
+        :title="t('devices.restoreController')"
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+      </button>
+
+      <!-- Normal cast button -->
+      <button
+        v-if="isOnline() && !isCastingToDevice"
         class="device-card__cast"
         @click="onCast"
         :disabled="!mediaStore.isReady || castStore.loading"
@@ -128,7 +162,7 @@ function toggleMenu() {
         {{ t('devices.cast') }}
       </button>
 
-      <span v-else class="device-card__na">{{ t('devices.notApplicable') }}</span>
+      <span v-if="!isOnline() && !isCastingToDevice" class="device-card__na">{{ t('devices.notApplicable') }}</span>
 
       <div class="device-card__menu-wrap" ref="menuWrapRef">
         <button class="device-card__more" @click="toggleMenu">
@@ -335,5 +369,39 @@ function toggleMenu() {
 
 .device-card__menu--danger {
   color: #EF4444 !important;
+}
+
+/* ── Casting state ── */
+.device-card--casting {
+  background: linear-gradient(135deg, var(--bg-card), rgba(251, 191, 36, 0.1));
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.device-card__window-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #B45309;
+  background: rgba(251, 191, 36, 0.2);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  animation: pulse-icon 2s ease-in-out infinite;
+}
+
+.device-card__window-icon:hover {
+  background: rgba(251, 191, 36, 0.35);
+  transform: scale(1.08);
+}
+
+@keyframes pulse-icon {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+  }
 }
 </style>

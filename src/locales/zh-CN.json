@@ -49,6 +49,16 @@
   "cast.paused": "已暂停",
   "cast.error": "出错了",
   "cast.stop": "停止投屏",
+  "cast.closeImage": "关闭图片",
   "cast.play": "播放",
-  "cast.pause": "暂停"
+  "cast.pause": "暂停",
+  "devices.selectDevice": "选择投屏设备",
+  "devices.selectDeviceHint": "请选择要投屏到的设备",
+  "devices.casting": "正在投屏...",
+  "devices.restoreController": "恢复控制器",
+  "controller.controlling": "正在控制",
+  "controller.device": "设备",
+  "controller.minimize": "最小化",
+  "controller.close": "关闭",
+  "controller.noMedia": "无媒体"
 }

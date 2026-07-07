@@ -2,7 +2,7 @@
 import TitleBar from '@/components/TitleBar.vue'
 import MediaInput from '@/components/MediaInput.vue'
 import DeviceList from '@/components/DeviceList.vue'
-import CastControl from '@/components/CastControl.vue'
+import CastController from '@/components/CastController.vue'
 import Footer from '@/components/Footer.vue'
 </script>
 
@@ -11,10 +11,11 @@ import Footer from '@/components/Footer.vue'
     <TitleBar />
     <main class="home__content">
       <MediaInput />
-      <CastControl />
       <DeviceList />
     </main>
     <Footer />
+    <!-- Embedded cast controller modal -->
+    <CastController />
   </div>
 </template>
 

@@ -35,6 +35,21 @@ export const useCastStore = defineStore('cast', () => {
   const loading = ref(false)
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
+  // ── Embedded controller modal state ──
+  const showController = ref(false)
+
+  function openController() {
+    showController.value = true
+  }
+
+  function minimizeController() {
+    showController.value = false
+  }
+
+  function restoreController() {
+    showController.value = true
+  }
+
   const isIdle = computed(() => castState.value.status === 'idle')
   const isPlaying = computed(() => castState.value.status === 'playing')
   const isCasting = computed(() =>
@@ -87,7 +102,7 @@ export const useCastStore = defineStore('cast', () => {
     }
   }
 
-  async function startCast(deviceId: string, mediaUri: string) {
+  async function startCast(deviceId: string, mediaUri: string, mediaInfo?: { title?: string; mime_type?: string }) {
     loading.value = true
     try {
       await apiStartCast(deviceId, mediaUri)
@@ -95,8 +110,19 @@ export const useCastStore = defineStore('cast', () => {
         ...castState.value,
         status: 'connecting',
         device_id: deviceId,
+        media: {
+          media_type: 'url',
+          uri: mediaUri,
+          title: mediaInfo?.title ?? mediaUri.split('/').pop() ?? mediaUri,
+          mime_type: mediaInfo?.mime_type ?? '',
+          file_size: null,
+          duration: null,
+          thumbnail: null,
+        },
       }
       startPolling()
+      // Show embedded controller
+      openController()
     } catch (err) {
       castState.value = { ...castState.value, status: 'error' }
       console.error('Failed to start cast:', err)
@@ -120,6 +146,8 @@ export const useCastStore = defineStore('cast', () => {
         positionTime: '00:00:00',
         durationTime: '00:00:00',
       }
+      // Hide controller
+      showController.value = false
     } catch (err) {
       console.error('Failed to stop cast:', err)
     } finally {
@@ -158,14 +186,12 @@ export const useCastStore = defineStore('cast', () => {
     try {
       const { listen } = await import('@tauri-apps/api/event')
 
-      // Cast state changed
       unlistenFns.push(
         await listen<CastState>('cast_state_changed', (event) => {
           castState.value = event.payload
         })
       )
 
-      // Cast error
       unlistenFns.push(
         await listen<{ message: string }>('cast_error', (event) => {
           console.error('Cast error:', event.payload.message)
@@ -197,6 +223,7 @@ export const useCastStore = defineStore('cast', () => {
     isIdle,
     isPlaying,
     isCasting,
+    showController,
     durationSeconds,
     positionSeconds,
     fetchState,
@@ -205,5 +232,8 @@ export const useCastStore = defineStore('cast', () => {
     pauseCast,
     resumeCast,
     seek,
+    openController,
+    minimizeController,
+    restoreController,
   }
 })

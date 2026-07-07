@@ -6,6 +6,18 @@ import { useCastStore } from '@/stores/cast'
 const { t } = useI18n()
 const castStore = useCastStore()
 
+/** Whether the current media is an image (no playback controls needed) */
+const isImage = computed(() => {
+  const mime = castStore.castState.media?.mime_type ?? ''
+  return mime.startsWith('image/')
+})
+
+/** Whether the current media is a video or audio (full playback controls) */
+const isPlayable = computed(() => {
+  const mime = castStore.castState.media?.mime_type ?? ''
+  return mime.startsWith('video/') || mime.startsWith('audio/')
+})
+
 /** Whether the user is currently dragging the seek slider */
 const isSeeking = ref(false)
 /** Local slider value (0–100) while seeking */
@@ -103,8 +115,8 @@ function getStatusLabel() {
       </div>
     </div>
 
-    <!-- Progress bar -->
-    <div v-if="canSeek" class="cast-control__progress">
+    <!-- Progress bar (video/audio only) -->
+    <div v-if="isPlayable && canSeek" class="cast-control__progress">
       <span class="cast-control__time">{{ displayPosition }}</span>
       <div class="cast-control__slider-wrap">
         <div class="cast-control__track">
@@ -127,8 +139,8 @@ function getStatusLabel() {
       <span class="cast-control__time">{{ displayDuration }}</span>
     </div>
 
-    <!-- Controls -->
-    <div class="cast-control__actions">
+    <!-- Controls: video/audio — full playback controls -->
+    <div v-if="isPlayable" class="cast-control__actions">
       <button
         class="cast-control__btn cast-control__btn--play"
         @click="togglePlayPause"
@@ -144,6 +156,28 @@ function getStatusLabel() {
           <path d="M4 2.5v11l9-5.5L4 2.5z" />
         </svg>
       </button>
+      <button
+        class="cast-control__btn cast-control__btn--stop"
+        @click="castStore.stopCast()"
+        :disabled="castStore.loading"
+      >
+        {{ t('cast.stop') }}
+      </button>
+    </div>
+
+    <!-- Controls: image — close only -->
+    <div v-else-if="isImage" class="cast-control__actions">
+      <button
+        class="cast-control__btn cast-control__btn--stop"
+        @click="castStore.stopCast()"
+        :disabled="castStore.loading"
+      >
+        {{ t('cast.closeImage') }}
+      </button>
+    </div>
+
+    <!-- Controls: unknown type — stop only -->
+    <div v-else class="cast-control__actions">
       <button
         class="cast-control__btn cast-control__btn--stop"
         @click="castStore.stopCast()"

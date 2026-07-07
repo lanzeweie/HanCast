@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useMediaStore } from '@/stores/media'
 import { useDeviceStore } from '@/stores/device'
 import { useCastStore } from '@/stores/cast'
+import Modal from './Modal.vue'
 
 const { t } = useI18n()
 const mediaStore = useMediaStore()
@@ -12,6 +13,9 @@ const castStore = useCastStore()
 
 const isDragOver = ref(false)
 const pickerError = ref<string | null>(null)
+
+// Device selection modal state
+const showDeviceModal = ref(false)
 
 // ── Media preview URL (asset:// protocol) ──
 
@@ -211,10 +215,31 @@ const hasTarget = computed(() => {
   return !!(deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.status === 'online'))
 })
 
+/** Online devices available for casting */
+const onlineDevices = computed(() => {
+  return deviceStore.devices.filter(d => d.status === 'online')
+})
+
 async function onCast() {
   const device = deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.status === 'online')
   if (device && mediaStore.mediaInfo) {
-    await castStore.startCast(device.id, mediaStore.mediaInfo.uri)
+    await castStore.startCast(device.id, mediaStore.mediaInfo.uri, {
+      title: mediaStore.mediaInfo.title,
+      mime_type: mediaStore.mediaInfo.mime_type,
+    })
+  } else if (!device && onlineDevices.value.length > 0) {
+    // No default device, but online devices exist — show selection modal
+    showDeviceModal.value = true
+  }
+}
+
+async function onSelectDevice(deviceId: string) {
+  showDeviceModal.value = false
+  if (mediaStore.mediaInfo) {
+    await castStore.startCast(deviceId, mediaStore.mediaInfo.uri, {
+      title: mediaStore.mediaInfo.title,
+      mime_type: mediaStore.mediaInfo.mime_type,
+    })
   }
 }
 
@@ -389,6 +414,33 @@ function onFileSelected(e: Event) {
         {{ t('media.parse') }}
       </button>
     </div>
+
+    <!-- ═══ Device Selection Modal ═══ -->
+    <Modal
+      :visible="showDeviceModal"
+      :title="t('devices.selectDevice')"
+      @close="showDeviceModal = false"
+    >
+      <p class="device-modal__hint">{{ t('devices.selectDeviceHint') }}</p>
+      <div class="device-modal__list">
+        <button
+          v-for="device in onlineDevices"
+          :key="device.id"
+          class="device-modal__item"
+          @click="onSelectDevice(device.id)"
+        >
+          <span class="device-modal__status" />
+          <div class="device-modal__info">
+            <span class="device-modal__name">{{ device.name }}</span>
+            <span class="device-modal__ip">{{ device.ip }}</span>
+          </div>
+          <span v-if="device.is_default" class="device-modal__badge">{{ t('devices.defaultBadge') }}</span>
+        </button>
+      </div>
+      <template #actions>
+        <button class="btn-cancel" @click="showDeviceModal = false">{{ t('common.cancel') }}</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -654,5 +706,71 @@ function onFileSelected(e: Event) {
 .media-input__parse:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Device Selection Modal ── */
+.device-modal__hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-md);
+}
+
+.device-modal__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.device-modal__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: var(--sp-md);
+  border-radius: var(--r-md);
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.device-modal__item:hover {
+  background: var(--bg-secondary);
+}
+
+.device-modal__status {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--status-online);
+  flex-shrink: 0;
+}
+
+.device-modal__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.device-modal__name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.device-modal__ip {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.device-modal__badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: var(--r-full);
+  font-weight: 500;
+  flex-shrink: 0;
 }
 </style>

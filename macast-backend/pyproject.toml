@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "macast-han-sidecar"
+# version synced from tauri.conf.json
 version = "2.0.0"
 description = "Macast-Han Python Sidecar (fork of xfangfang/Macast)"
 readme = "README.md"

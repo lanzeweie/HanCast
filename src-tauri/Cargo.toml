@@ -1,5 +1,6 @@
 [package]
 name = "macast-han"
+# version synced from tauri.conf.json
 version = "2.0.0"
 description = "Macast-Han: A cross-platform media casting application (fork of xfangfang/Macast)"
 authors = ["Han"]

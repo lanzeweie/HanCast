@@ -8,7 +8,8 @@ class CastState:
     status: str = "idle"  # 'idle', 'connecting', 'playing', 'paused', 'error'
     device_id: Optional[str] = None
     media: Optional[MediaInfo] = None
-    position: float = 0.0
+    position: str = "00:00:00"
+    duration: str = "00:00:00"
     volume: int = 80
     is_muted: bool = False
 
@@ -17,6 +18,7 @@ class CastState:
             "status": self.status,
             "device_id": self.device_id,
             "position": self.position,
+            "duration": self.duration,
             "volume": self.volume,
             "is_muted": self.is_muted,
         }

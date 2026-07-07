@@ -746,16 +746,87 @@ class DLNAProtocol:
                         if not control_url.startswith('/'):
                             control_url = '/' + control_url
                         self._control_url = f"http://{self._device.ip}:{self._device.port}{control_url}"
-                        logger.info(f"Control URL: {self._control_url}")
+                        logger.debug(f"Control URL: {self._control_url}")
                         break
         except Exception as e:
             logger.error(f"Failed to resolve control URL: {e}")
+
+    def get_position_info(self) -> dict:
+        """查询远程设备的播放进度 (GetPositionInfo)"""
+        if not self._device:
+            return {}
+        try:
+            result = self._send_action(
+                NS_AVTRANSPORT, "GetPositionInfo",
+                {"InstanceID": 0}
+            )
+            if result is None:
+                return {}
+            # 解析响应
+            ns = "{urn:schemas-upnp-org:service:AVTransport:1}"
+            info = {}
+            for child in result.iter():
+                tag = etree.QName(child.tag).localname
+                if tag in ('TrackDuration', 'TrackMetaData', 'TrackURI',
+                           'RelTime', 'AbsTime', 'Track', 'TrackCount'):
+                    info[tag] = child.text
+            logger.debug(f"GetPositionInfo: {info}")
+            return info
+        except Exception as e:
+            logger.error(f"GetPositionInfo failed: {e}")
+            return {}
+
+    def get_transport_info(self) -> dict:
+        """查询远程设备的传输状态 (GetTransportInfo)"""
+        if not self._device:
+            return {}
+        try:
+            result = self._send_action(
+                NS_AVTRANSPORT, "GetTransportInfo",
+                {"InstanceID": 0}
+            )
+            if result is None:
+                return {}
+            ns = "{urn:schemas-upnp-org:service:AVTransport:1}"
+            info = {}
+            for child in result.iter():
+                tag = etree.QName(child.tag).localname
+                if tag in ('CurrentTransportState', 'CurrentTransportStatus',
+                           'CurrentSpeed'):
+                    info[tag] = child.text
+            logger.debug(f"GetTransportInfo: {info}")
+            return info
+        except Exception as e:
+            logger.error(f"GetTransportInfo failed: {e}")
+            return {}
+
+    def get_volume_info(self) -> dict:
+        """查询远程设备的音量 (GetVolume)"""
+        if not self._device:
+            return {}
+        try:
+            result = self._send_action(
+                NS_RENDERING, "GetVolume",
+                {"InstanceID": 0, "Channel": "Master"}
+            )
+            if result is None:
+                return {}
+            info = {}
+            for child in result.iter():
+                tag = etree.QName(child.tag).localname
+                if tag == 'CurrentVolume':
+                    info['Volume'] = child.text
+            logger.debug(f"GetVolume: {info}")
+            return info
+        except Exception as e:
+            logger.error(f"GetVolume failed: {e}")
+            return {}
 
     def _send_action(self, service: str, action: str, params: dict):
         """发送 SOAP 请求"""
         if not self._control_url:
             logger.error("No control URL")
-            return
+            return None
 
         # 构建 SOAP XML
         envelope = etree.Element(

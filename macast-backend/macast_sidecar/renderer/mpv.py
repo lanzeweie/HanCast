@@ -131,12 +131,18 @@ class MPVRenderer(Renderer):
         self.send_command(
             ['observe_property', ObserveProperty.sub.value, 'sub-visibility'])
 
+        logger.info("observe 命令已发送")
         self.set_media_volume(100)
 
     def update_state(self, res):
         """Update player state from mpv"""
         res = json.loads(res)
         logger.debug(f"MPV STATE: {res}")
+        # 关键属性变化用 info 级别，方便排查进度问题
+        if 'event' in res and res['event'] == 'property-change':
+            prop_name = res.get('name', '')
+            if prop_name in ('time-pos', 'duration'):
+                logger.info(f"MPV 属性变化: {prop_name} = {res.get('data')}")
         if 'id' in res:
             if res['id'] == ObserveProperty.volume.value:
                 logger.info(res)
@@ -248,8 +254,9 @@ class MPVRenderer(Renderer):
                                                   socket.SOCK_STREAM)
                     self.ipc_sock.connect(self.mpv_sock)
                 self.ipc_once_connected = True
-                logger.info("MPV IPC connected OK")
+                logger.info(f"MPV IPC connected OK, socket: {self.mpv_sock}")
                 self.set_observe()
+                logger.info("observe 命令已发送, IPC 接收循环开始")
             except Exception as e:
                 logger.debug("mpv ipc socket reconnecting: {}".format(str(e)))
                 continue
@@ -264,6 +271,7 @@ class MPVRenderer(Renderer):
                     if data == b'':
                         break
                     res += data
+                    logger.debug(f"IPC 收到 {len(data)} 字节")
                     if data[-1] != 10:
                         continue
                 except Exception as e:
@@ -272,13 +280,14 @@ class MPVRenderer(Renderer):
                 try:
                     msgs = res.decode().strip().split('\n')
                     for msg in msgs:
+                        logger.debug(f"MPV IPC收到: {msg}")
                         self.update_state(msg)
                 except Exception as e:
                     logger.error("decode error: {}".format(e))
                 finally:
                     res = b''
             self.ipc_sock.close()
-            logger.debug("mpv ipc stopped")
+            logger.info("mpv ipc stopped")
 
     def start_mpv(self):
         """Start mpv thread"""

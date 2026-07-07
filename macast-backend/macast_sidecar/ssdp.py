@@ -404,7 +404,7 @@ class SSDPService:
         if not location:
             return
 
-        logger.info(f"NOTIFY alive from {host}:{port}, location: {location}")
+        logger.debug(f"NOTIFY alive from {host}:{port}, location: {location}")
 
         # 异步获取设备描述
         threading.Thread(
@@ -433,7 +433,7 @@ class SSDPService:
                 with self._lock:
                     if device.id not in self._devices:
                         self._devices[device.id] = device
-                        logger.info(f"Found device via NOTIFY: {device.name} ({device.ip})")
+                        logger.debug(f"Found device via NOTIFY: {device.name} ({device.ip})")
                         if self._on_device_found:
                             self._on_device_found(device)
                     else:
@@ -486,7 +486,7 @@ class SSDPService:
     def _do_byebye(self):
         """发送 byebye — 精确复刻原始 Macast 的 do_byebye"""
         for usn in self._known:
-            logger.info('Sending byebye notification for %s' % usn)
+            logger.debug('Sending byebye notification for %s' % usn)
             resp = [
                 'NOTIFY * HTTP/1.1',
                 'HOST: %s:%d' % (SSDP_ADDR, SSDP_PORT),
@@ -536,7 +536,7 @@ class SSDPService:
                     f"ST: {st}\r\n"
                     "\r\n"
                 )
-                logger.info(f"Sending M-SEARCH for {st}")
+                logger.debug(f"Sending M-SEARCH for {st}")
                 sock.sendto(message.encode(), (SSDP_ADDR, SSDP_PORT))
 
             while self._running:
@@ -581,7 +581,7 @@ class SSDPService:
 
                 with self._lock:
                     self._devices[device.id] = device
-                logger.info(f"Found device: {device.name} ({device.ip})")
+                logger.debug(f"Found device: {device.name} ({device.ip})")
                 if self._on_device_found:
                     self._on_device_found(device)
         except Exception as e:
@@ -646,7 +646,7 @@ class SSDPService:
             elif "MediaServer" in type_str:
                 device_type = "server"
 
-            logger.info(f"Parsed device: {friendly_name} ({device_type}) at {ip}:{port}")
+            logger.debug(f"Parsed device: {friendly_name} ({device_type}) at {ip}:{port}")
 
             return Device(
                 id=udn, name=friendly_name, device_type=device_type,

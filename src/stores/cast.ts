@@ -82,12 +82,13 @@ export const useCastStore = defineStore('cast', () => {
           PAUSED: 'paused',
           STOPPED: 'stopped',
         }
+        // Polling only updates status — position/duration come from the
+        // cast_state_changed event stream (which carries real values from
+        // the backend's own polling of the remote device).
+        // get_cast_url returns stale 00:00:00, so we ignore those fields here.
         castState.value = {
           ...castState.value,
           status: statusMap[info.status] ?? castState.value.status,
-          position: parseTimeToSeconds(info.position),
-          positionTime: info.position,
-          durationTime: info.duration,
         }
         if (info.status === 'STOPPED') {
           stopPolling()
@@ -201,8 +202,8 @@ export const useCastStore = defineStore('cast', () => {
       const { listen } = await import('@tauri-apps/api/event')
 
       unlistenFns.push(
-        await listen<{ status: string; volume?: number; is_muted?: boolean }>('cast_state_changed', (event) => {
-          const { status } = event.payload
+        await listen<{ status: string; position?: string; duration?: string; volume?: number; is_muted?: boolean }>('cast_state_changed', (event) => {
+          const { status, position, duration } = event.payload
           const mappedStatus: Record<string, CastState['status']> = {
             PLAYING: 'playing',
             PAUSED: 'paused',
@@ -219,7 +220,17 @@ export const useCastStore = defineStore('cast', () => {
             castState.value.is_muted = event.payload.is_muted
           }
 
-          castState.value = { ...castState.value, status: newStatus }
+          // Update position/duration from sidecar polling
+          const updates: Partial<CastState> = { status: newStatus }
+          if (position) {
+            updates.position = parseTimeToSeconds(position)
+            updates.positionTime = position
+          }
+          if (duration) {
+            updates.durationTime = duration
+          }
+
+          castState.value = { ...castState.value, ...updates }
 
           // Video finished or device stopped
           if (newStatus === 'stopped' || newStatus === 'idle') {

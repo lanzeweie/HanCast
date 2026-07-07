@@ -6,10 +6,12 @@ import os
 import sys
 import json
 import logging
+import threading
+import time
 from typing import Any, Dict
 from .ssdp import SSDPService
 from .protocol.dlna import DLNAProtocol
-from .protocol.server import DLNAServer
+from .protocol.server import DLNAServer, DLNAHandler
 from .renderer.mpv import MPVRenderer
 from .media.parser import MediaParser
 from .media.server import MediaServer
@@ -167,6 +169,10 @@ class CommandHandler:
         self.renderer.start()
         logger.info("MPV renderer started")
 
+        # 投屏进度轮询线程（控制器模式下，主动查询远程设备进度）
+        self._poll_running = False
+        self._poll_thread = None
+
     def execute(self, cmd: str, params: Dict[str, Any]) -> Any:
         """执行命令"""
         if cmd not in self._commands:
@@ -175,6 +181,7 @@ class CommandHandler:
 
     def cleanup(self):
         """清理资源"""
+        self._stop_poll()
         self.ssdp.stop()
         self.dlna_server.stop()
         self.media_server.stop()
@@ -273,6 +280,7 @@ class CommandHandler:
     def _start_cast(self, params: dict) -> None:
         device_id = params["device_id"]
         media_uri = params["media_uri"]
+        mime_type = params.get("mime_type", "")  # 可选，前端传入
 
         # 如果是本地文件，通过媒体服务器提供 HTTP 访问
         if not media_uri.startswith("http"):
@@ -288,7 +296,14 @@ class CommandHandler:
         self.cast_state.status = "playing"
         self.cast_state.device_id = device_id
 
+        # 图片类媒体不需要轮询进度
+        if mime_type.startswith("image/"):
+            logger.info(f"图片投屏，跳过进度轮询: {mime_type}")
+        else:
+            self._start_poll()
+
     def _stop_cast(self, params: dict) -> None:
+        self._stop_poll()
         self.protocol.stop()
         self.cast_state.status = "idle"
         self.cast_state.device_id = None
@@ -333,6 +348,79 @@ class CommandHandler:
         muted = params["muted"]
         self.protocol.set_mute(muted)
         self.cast_state.is_muted = muted
+
+    # ── 进度轮询（控制器模式） ──
+
+    def _start_poll(self):
+        """启动进度轮询线程"""
+        if self._poll_running:
+            return
+        self._poll_running = True
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
+        logger.debug("进度轮询线程已启动")
+
+    def _stop_poll(self):
+        """停止进度轮询线程"""
+        self._poll_running = False
+        logger.debug("进度轮询线程已停止")
+
+    def _poll_loop(self):
+        """轮询远程设备的播放进度"""
+        transport_check_counter = 0
+
+        while self._poll_running:
+            try:
+                # 查询进度
+                pos_info = self.protocol.get_position_info()
+                duration = pos_info.get('TrackDuration', '00:00:00')
+                position = pos_info.get('RelTime', '00:00:00')
+
+                # 传输状态只每 3 秒查一次（变化不频繁，减少网络开销）
+                transport_check_counter += 1
+                if transport_check_counter >= 3 or not pos_info:
+                    transport_check_counter = 0
+                    transport_info = self.protocol.get_transport_info()
+                    transport_state = transport_info.get('CurrentTransportState', '')
+                    status_map = {
+                        "PLAYING": "playing",
+                        "PAUSED_PLAYBACK": "paused",
+                        "STOPPED": "stopped",
+                        "NO_MEDIA_PRESENT": "idle",
+                        "TRANSITIONING": "connecting",
+                    }
+                    self.cast_state.status = status_map.get(transport_state, self.cast_state.status)
+
+                    # 如果播放结束，停止轮询
+                    if transport_state in ('STOPPED', 'NO_MEDIA_PRESENT'):
+                        logger.info(f"播放结束 (state={transport_state})，停止轮询")
+                        self._poll_running = False
+
+                # 更新进度
+                self.cast_state.duration = duration or '00:00:00'
+                self.cast_state.position = position or '00:00:00'
+
+                # 推送事件到前端
+                event_data = {
+                    "status": self.cast_state.status,
+                    "device_id": self.cast_state.device_id,
+                    "position": position or "00:00:00",
+                    "duration": duration or "00:00:00",
+                    "volume": self.cast_state.volume,
+                    "is_muted": self.cast_state.is_muted,
+                }
+                if self.cast_state.media:
+                    event_data["media"] = self.cast_state.media.to_dict()
+
+                print(json.dumps({
+                    "event": "cast_state_changed",
+                    "data": event_data
+                }), flush=True)
+
+            except Exception as e:
+                logger.error(f"进度轮询异常: {e}")
+
+            time.sleep(1)  # 每秒查询一次
 
     # ── 媒体解析 ──
 
@@ -385,5 +473,13 @@ class CommandHandler:
 
     def _save_settings(self, params: dict) -> None:
         settings = params["settings"]
+
+        # 热更新设备名称：同步到 DLNA 描述服务器（下次 description.xml 请求即生效）
+        new_name = settings.get("friendly_name")
+        if new_name and new_name != self.config.get_friendly_name():
+            self.dlna_server.friendly_name = new_name
+            DLNAHandler.friendly_name = new_name
+            logger.info(f"设备名称已更新: {new_name}")
+
         self.config.update(settings)
         self.config.save()

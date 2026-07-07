@@ -12,7 +12,7 @@ import json
 import logging
 import signal
 from .commands import CommandHandler
-from .utils.logger import setup_logger
+from .utils.logger import setup_logger, get_logger
 
 # Windows 下强制 stdin/stdout/stderr 使用 UTF-8 编码
 if sys.platform == 'win32':
@@ -21,7 +21,9 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-logger = setup_logger("macast.sidecar", level=logging.INFO)
+# 初始化根 logger（控制台 + 文件输出）
+setup_logger("macast", level=logging.INFO)
+logger = get_logger("macast.sidecar")
 
 
 def main():

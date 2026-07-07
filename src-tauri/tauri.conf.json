@@ -28,7 +28,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http: https: data: blob: asset:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob: asset:; media-src 'self' http: https: data: blob:; connect-src 'self' http: https: ws:",
+      "csp": "default-src 'self' http: https: data: blob: asset:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob: asset:; media-src 'self' http: https: data: blob: asset:; connect-src 'self' http: https: ws:",
       "assetProtocol": {
         "enable": true,
         "scope": {

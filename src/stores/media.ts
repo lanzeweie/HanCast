@@ -139,6 +139,13 @@ export const useMediaStore = defineStore('media', () => {
     }
   }
 
+  /** Update thumbnail on current media info (used after video frame extraction) */
+  function setThumbnail(thumb: string | null) {
+    if (mediaInfo.value) {
+      mediaInfo.value = { ...mediaInfo.value, thumbnail: thumb }
+    }
+  }
+
   return {
     state,
     mediaInfo,
@@ -153,5 +160,6 @@ export const useMediaStore = defineStore('media', () => {
     setInputChange,
     parseFile,
     parseUrl,
+    setThumbnail,
   }
 })

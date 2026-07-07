@@ -206,9 +206,9 @@ export async function resolveBilibili(url: string): Promise<MediaInfo> {
 }
 
 // Cast control
-export async function startCast(deviceId: string, mediaUri: string): Promise<void> {
+export async function startCast(deviceId: string, mediaUri: string, mimeType?: string): Promise<void> {
   const invoke = await initInvoke()
-  await invoke('start_cast', { deviceId, mediaUri })
+  await invoke('start_cast', { deviceId, mediaUri, mimeType })
 }
 
 export async function stopCast(): Promise<void> {

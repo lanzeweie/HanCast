@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMediaStore } from '@/stores/media'
 import { useDeviceStore } from '@/stores/device'
@@ -21,23 +21,87 @@ const showDeviceModal = ref(false)
 
 const convertFileSrc = ref<((filePath: string, protocol?: string) => string) | null>(null)
 
+// Video thumbnail extracted via <video> + canvas
+const videoThumb = ref<string | null>(null)
+
+function captureFrame(video: HTMLVideoElement) {
+  try {
+    if (!video.videoWidth || !video.videoHeight) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(video, 0, 0)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+      videoThumb.value = dataUrl
+      mediaStore.setThumbnail(dataUrl)
+    }
+  } catch {
+    // CORS or tainted canvas
+  }
+}
+
+function extractVideoThumb(url: string) {
+  videoThumb.value = null
+  const video = document.createElement('video')
+  video.muted = true
+  video.preload = 'auto'
+  video.playsInline = true
+  video.crossOrigin = 'anonymous'
+  video.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
+  document.body.appendChild(video)
+
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    captureFrame(video)
+    video.pause()
+    video.removeAttribute('src')
+    video.remove()
+  }
+
+  video.addEventListener('loadeddata', () => {
+    if (video.duration > 1.5) {
+      video.currentTime = 1
+    } else {
+      finish()
+    }
+  })
+  video.addEventListener('seeked', () => {
+    finish()
+  })
+
+  // Fallback: if seeked never fires
+  video.addEventListener('loadeddata', () => {
+    setTimeout(() => { if (!done) finish() }, 800)
+  })
+
+  video.addEventListener('error', () => {
+    video.remove()
+  })
+
+  video.src = url
+}
+
 const mediaPreviewUrl = computed(() => {
   const info = mediaStore.mediaInfo
   if (!info) return null
 
-  // Prefer thumbnail (e.g. Bilibili cover image, already proxied)
+  // Prefer thumbnail (Bilibili cover or extracted video frame)
   if (info.thumbnail) return info.thumbnail
 
-  // Local file in Tauri → asset:// URL
-  if (inTauri && info.media_type === 'file' && convertFileSrc.value) {
+  // Local image file in Tauri → asset:// URL
+  if (inTauri && info.media_type === 'file' && convertFileSrc.value && info.mime_type?.startsWith('image/')) {
     return convertFileSrc.value(info.uri)
   }
   // Local file in browser → blob URL from File object
-  if (!inTauri && info.media_type === 'file' && mediaStore.localFile) {
+  if (!inTauri && info.media_type === 'file' && mediaStore.localFile && info.mime_type?.startsWith('image/')) {
     return URL.createObjectURL(mediaStore.localFile)
   }
-  // Remote URL → use directly
-  if (info.media_type === 'url') {
+  // Remote URL (image direct link) → use directly
+  if (info.media_type === 'url' && info.mime_type?.startsWith('image/')) {
     return info.uri
   }
   return null
@@ -56,6 +120,19 @@ function getMediaCategory(): MediaCategory {
 }
 
 const mediaCategory = computed<MediaCategory>(() => getMediaCategory())
+
+// Watch for local video files → extract thumbnail frame
+// Watch URI only — avoid re-triggering when setThumbnail updates mediaInfo
+watch(() => mediaStore.mediaInfo?.uri, (uri) => {
+  videoThumb.value = null
+  const info = mediaStore.mediaInfo
+  if (uri && info?.mime_type?.startsWith('video/') && info.media_type === 'file') {
+    const url = inTauri && convertFileSrc.value
+      ? convertFileSrc.value(uri)
+      : (!inTauri && mediaStore.localFile ? URL.createObjectURL(mediaStore.localFile) : null)
+    if (url) extractVideoThumb(url)
+  }
+})
 
 const categoryIcon = computed(() => {
   switch (mediaCategory.value) {

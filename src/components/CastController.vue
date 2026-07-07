@@ -69,6 +69,17 @@ async function togglePlayPause() {
 }
 
 // ── Volume ──
+const volumePercent = computed(() => castStore.castState.is_muted ? 0 : castStore.castState.volume)
+const volumeIcon = computed(() => {
+  if (castStore.castState.is_muted || castStore.castState.volume === 0) return 'muted'
+  if (castStore.castState.volume < 50) return 'low'
+  return 'high'
+})
+
+function toggleMute() {
+  castStore.setMute(!castStore.castState.is_muted)
+}
+
 function onVolumeInput(e: Event) {
   const v = Number((e.target as HTMLInputElement).value)
   castStore.castState.volume = v
@@ -90,6 +101,32 @@ const progress = computed(() => {
   return Math.min(100, (castStore.positionSeconds / dur) * 100)
 })
 
+// Seek 锁定：用户拖动后锁定进度条，直到后端位置追上
+const seekLocked = ref(false)      // 是否锁定中
+const seekLockedPct = ref(0)       // 锁定的百分比位置
+const seekDragging = ref(false)    // 是否正在拖动
+const seekPreview = ref(0)         // 拖动中的预览值
+
+// 当后端报告的位置接近锁定目标时，自动解锁
+// (watch positionSeconds 的变化)
+const _unlockCheck = computed(() => {
+  const pos = castStore.positionSeconds
+  const dur = castStore.durationSeconds
+  if (!seekLocked.value || dur <= 0) return pos
+  const targetSec = (seekLockedPct.value / 100) * dur
+  // 后端位置与 seek 目标相差 < 3 秒 → 认为 seek 生效，解锁
+  if (Math.abs(pos - targetSec) < 3) {
+    seekLocked.value = false
+  }
+  return pos
+})
+
+const displayProgress = computed(() => {
+  if (seekDragging.value) return seekPreview.value
+  if (seekLocked.value) return seekLockedPct.value
+  return progress.value
+})
+
 function formatTime(seconds: number): string {
   if (seconds <= 0) return '00:00'
   const h = Math.floor(seconds / 3600)
@@ -101,18 +138,31 @@ function formatTime(seconds: number): string {
   return `${mm}:${ss}`
 }
 
-const displayPosition = computed(() => formatTime(castStore.positionSeconds))
+const displayPosition = computed(() => {
+  if (seekDragging.value) {
+    return formatTime((seekPreview.value / 100) * castStore.durationSeconds)
+  }
+  if (seekLocked.value) {
+    return formatTime((seekLockedPct.value / 100) * castStore.durationSeconds)
+  }
+  return formatTime(castStore.positionSeconds)
+})
 const displayDuration = computed(() => formatTime(castStore.durationSeconds))
 const canSeek = computed(() => castStore.isCasting)
 
-let _seekDebounce: ReturnType<typeof setTimeout> | null = null
 function onSeekInput(e: Event) {
-  // 拖动中：只更新视觉位置（通过 CSS 或 local state）
+  seekDragging.value = true
+  seekPreview.value = Number((e.target as HTMLInputElement).value)
 }
 
 function onSeekChange(e: Event) {
   const val = Number((e.target as HTMLInputElement).value)
+  seekDragging.value = false
   if (castStore.durationSeconds > 0) {
+    // 锁定进度条到 seek 目标
+    seekLocked.value = true
+    seekLockedPct.value = val
+
     const targetSeconds = (val / 100) * castStore.durationSeconds
     const h = Math.floor(targetSeconds / 3600)
     const m = Math.floor((targetSeconds % 3600) / 60)
@@ -164,13 +214,25 @@ onMounted(async () => {
 
           <!-- Video/audio mode: full controls -->
           <template v-else>
-            <!-- Thumbnail -->
-            <div class="ctrl__thumb">
+            <!-- Thumbnail + play/pause overlay -->
+            <div class="ctrl__thumb" @click="togglePlayPause">
               <img v-if="previewUrl" :src="previewUrl" class="ctrl__thumb-img" :alt="mediaTitle" />
               <div v-else class="ctrl__thumb-ph">
                 <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".2">
                   <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
                 </svg>
+              </div>
+              <!-- Play/Pause overlay button -->
+              <div class="ctrl__thumb-overlay" :class="{ 'ctrl__thumb-overlay--paused': !isPlaying }">
+                <div class="ctrl__thumb-play">
+                  <svg v-if="isPlaying" viewBox="0 0 24 24" width="28" height="28" fill="white">
+                    <rect x="6" y="4" width="4" height="16" rx="1"/>
+                    <rect x="14" y="4" width="4" height="16" rx="1"/>
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" width="28" height="28" fill="white">
+                    <polygon points="6 3 20 12 6 21 6 3"/>
+                  </svg>
+                </div>
               </div>
             </div>
 
@@ -180,41 +242,44 @@ onMounted(async () => {
             <!-- Progress bar -->
             <div v-if="canSeek" class="ctrl__progress">
               <span class="ctrl__time">{{ displayPosition }}</span>
-              <input type="range" class="ctrl__seek-bar" min="0" max="100" step="0.5"
-                :value="progress"
-                @input.stop="onSeekInput"
-                @change.stop="onSeekChange" />
+              <div class="ctrl__slider-wrap">
+                <div class="ctrl__slider-track">
+                  <div class="ctrl__slider-fill" :style="{ width: displayProgress + '%' }" />
+                </div>
+                <input type="range" class="ctrl__slider-input" min="0" max="100" step="0.5"
+                  :value="displayProgress"
+                  @input.stop="onSeekInput"
+                  @change.stop="onSeekChange" />
+              </div>
               <span class="ctrl__time">{{ displayDuration }}</span>
             </div>
 
             <!-- Volume -->
             <div class="ctrl__vol">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                <path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
-              </svg>
-              <input type="range" class="ctrl__vol-bar" min="0" max="100"
-                :value="castStore.castState.is_muted ? 0 : castStore.castState.volume"
-                @input.stop="onVolumeInput"
-                @change.stop="onVolumeChange" />
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                <path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
-              </svg>
-            </div>
-
-            <!-- Playback -->
-            <div class="ctrl__pb">
-              <button class="ctrl__pb-btn" disabled>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2"/></svg>
+              <!-- Volume icon — click to toggle mute -->
+              <button class="ctrl__vol-icon" @click="toggleMute" :title="castStore.castState.is_muted ? t('cast.unmute') : t('cast.mute')">
+                <svg v-if="volumeIcon === 'muted'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+                </svg>
+                <svg v-else-if="volumeIcon === 'low'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M15.54 8.46a5 5 0 010 7.07"/>
+                </svg>
+                <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
+                </svg>
               </button>
-              <button class="ctrl__pb-btn ctrl__pb-main" @click="togglePlayPause">
-                <svg v-if="isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              </button>
-              <button class="ctrl__pb-btn" disabled>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
-              </button>
+              <div class="ctrl__slider-wrap ctrl__slider-wrap--vol">
+                <div class="ctrl__slider-track">
+                  <div class="ctrl__slider-fill" :style="{ width: volumePercent + '%' }" />
+                </div>
+                <input type="range" class="ctrl__slider-input" min="0" max="100"
+                  :value="volumePercent"
+                  @input.stop="onVolumeInput"
+                  @change.stop="onVolumeChange" />
+              </div>
             </div>
 
             <!-- Stop -->
@@ -303,9 +368,44 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   margin: 4px 12px;
+  position: relative;
+  cursor: pointer;
 }
 .ctrl__thumb-img { width: 100%; height: 100%; object-fit: cover; }
 .ctrl__thumb-ph { display: flex; align-items: center; justify-content: center; }
+
+/* Play/Pause overlay on thumbnail */
+.ctrl__thumb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.ctrl__thumb:hover .ctrl__thumb-overlay {
+  opacity: 1;
+}
+.ctrl__thumb-overlay--paused {
+  opacity: 1;
+}
+.ctrl__thumb-play {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.ctrl__thumb-play:hover {
+  transform: scale(1.08);
+  background: rgba(0, 0, 0, 0.7);
+}
 
 /* ── Filename ── */
 .ctrl__name {
@@ -320,11 +420,108 @@ onMounted(async () => {
   width: 100%;
 }
 
+/* ── Slider (shared by progress + volume) ── */
+.ctrl__slider-wrap {
+  position: relative;
+  flex: 1;
+  height: 16px;
+  display: flex;
+  align-items: center;
+}
+
+.ctrl__slider-wrap--vol {
+  height: 14px;
+}
+
+.ctrl__slider-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #E5E7EB;
+  border-radius: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  transition: height 0.15s ease;
+}
+
+.ctrl__slider-wrap:hover .ctrl__slider-track {
+  height: 4px;
+}
+
+.ctrl__slider-fill {
+  height: 100%;
+  background: var(--primary, #3B82F6);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.ctrl__slider-wrap--vol .ctrl__slider-fill {
+  background: #6B7280;
+}
+
+.ctrl__slider-wrap--vol:hover .ctrl__slider-fill {
+  background: #4B5563;
+}
+
+.ctrl__slider-input {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+}
+
+/* Thumb: hidden by default, show on hover */
+.ctrl__slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: var(--primary, #3B82F6);
+  box-shadow: none;
+  transition: width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ctrl__slider-wrap:hover .ctrl__slider-input::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.ctrl__slider-input:active::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+/* Volume thumb: gray */
+.ctrl__slider-wrap--vol .ctrl__slider-input::-webkit-slider-thumb {
+  background: #6B7280;
+  box-shadow: none;
+}
+
+.ctrl__slider-wrap--vol:hover .ctrl__slider-input::-webkit-slider-thumb {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.15);
+}
+
+.ctrl__slider-wrap--vol .ctrl__slider-input:active::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  box-shadow: 0 0 0 4px rgba(107, 114, 128, 0.2);
+}
+
 /* ── Progress ── */
 .ctrl__progress {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 0 12px;
   width: 100%;
 }
@@ -338,73 +535,32 @@ onMounted(async () => {
   user-select: none;
 }
 
-.ctrl__seek-bar {
-  flex: 1;
-  height: 3px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #D1D5DB;
-  border-radius: 2px;
-  outline: none;
-  cursor: pointer;
-}
-
-.ctrl__seek-bar::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--primary, #3B82F6);
-}
-
 /* ── Volume ── */
 .ctrl__vol {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
+  gap: 6px;
+  padding: 2px 12px;
   width: 100%;
   color: var(--text-tertiary);
 }
-.ctrl__vol-bar {
-  flex: 1;
-  height: 3px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #D1D5DB;
-  border-radius: 2px;
-  outline: none;
-  cursor: pointer;
-}
-.ctrl__vol-bar::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #6B7280;
-}
 
-/* ── Playback ── */
-.ctrl__pb {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 4px 12px;
-}
-.ctrl__pb-btn {
-  width: 32px;
-  height: 32px;
+.ctrl__vol-icon {
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
-  color: #374151;
+  color: inherit;
   cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: background 0.15s;
 }
-.ctrl__pb-btn:disabled { opacity: .3; cursor: not-allowed; }
-.ctrl__pb-main { width: 40px; height: 40px; }
+.ctrl__vol-icon:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
 
 /* ── Stop ── */
 .ctrl__stop {
@@ -448,11 +604,21 @@ onMounted(async () => {
 @media (prefers-color-scheme: dark) {
   .ctrl-modal { background: rgba(30, 30, 30, 0.95); }
   .ctrl__min:hover { background: rgba(255,255,255,.1); }
+  .ctrl__vol-icon:hover { background: rgba(255,255,255,.1); }
   .ctrl__thumb { background: rgba(255,255,255,.05); }
-  .ctrl__pb-btn { color: #D1D5DB; }
-  .ctrl__vol-bar { background: #4B5563; }
-  .ctrl__vol-bar::-webkit-slider-thumb { background: #9CA3AF; }
-  .ctrl__seek-bar { background: #4B5563; }
-  .ctrl__seek-bar::-webkit-slider-thumb { background: #60A5FA; }
+  .ctrl__slider-track { background: #4B5563; }
+  .ctrl__slider-fill { background: #60A5FA; }
+  .ctrl__slider-wrap:hover .ctrl__slider-input::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  }
+  .ctrl__slider-input:active::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.25);
+  }
+  .ctrl__slider-wrap--vol .ctrl__slider-fill { background: #9CA3AF; }
+  .ctrl__slider-wrap--vol:hover .ctrl__slider-fill { background: #D1D5DB; }
+  .ctrl__slider-wrap--vol .ctrl__slider-input::-webkit-slider-thumb { background: #9CA3AF; }
+  .ctrl__slider-wrap--vol:hover .ctrl__slider-input::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.15);
+  }
 }
 </style>

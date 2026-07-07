@@ -9,12 +9,10 @@ const { t, locale } = useI18n()
 const settingsStore = useSettingsStore()
 
 const friendlyName = ref('')
-const mediaPort = ref(8080)
 
 onMounted(async () => {
   await settingsStore.fetchSettings()
   friendlyName.value = settingsStore.settings.friendly_name
-  mediaPort.value = settingsStore.settings.media_port
 })
 
 function goBack() {
@@ -27,10 +25,6 @@ function onLanguageChange(lang: string) {
 
 async function saveFriendlyName() {
   await settingsStore.saveSettings({ friendly_name: friendlyName.value })
-}
-
-async function saveMediaPort() {
-  await settingsStore.saveSettings({ media_port: mediaPort.value })
 }
 </script>
 
@@ -59,7 +53,6 @@ async function saveMediaPort() {
           >
             <option value="zh-CN">简体中文</option>
             <option value="en-US">English</option>
-            <option value="zh-TW">繁體中文</option>
           </select>
         </div>
       </section>
@@ -78,15 +71,6 @@ async function saveMediaPort() {
           />
         </div>
 
-        <div class="settings__item">
-          <span class="settings__label">{{ t('settings.defaultPort') }}</span>
-          <input
-            class="settings__input settings__input--small"
-            type="number"
-            v-model.number="mediaPort"
-            @blur="saveMediaPort"
-          />
-        </div>
       </section>
 
       <!-- About -->

@@ -11,6 +11,7 @@ import {
   resumeCast as apiResumeCast,
   seekCast as apiSeekCast,
   setVolume as apiSetVolume,
+  setMute as apiSetMute,
 } from '@/api/commands'
 
 /** Parse "HH:MM:SS" to total seconds */
@@ -76,7 +77,6 @@ export const useCastStore = defineStore('cast', () => {
     pollTimer = setInterval(async () => {
       try {
         const info = await getCastUrl()
-        console.log('[Cast] Poll:', info)
         const statusMap: Record<string, CastState['status']> = {
           PLAYING: 'playing',
           PAUSED: 'paused',
@@ -109,7 +109,7 @@ export const useCastStore = defineStore('cast', () => {
   async function startCast(deviceId: string, mediaUri: string, mediaInfo?: { title?: string; mime_type?: string; thumbnail?: string | null }) {
     loading.value = true
     try {
-      await apiStartCast(deviceId, mediaUri)
+      await apiStartCast(deviceId, mediaUri, mediaInfo?.mime_type)
       castState.value = {
         ...castState.value,
         status: 'connecting',
@@ -193,6 +193,15 @@ export const useCastStore = defineStore('cast', () => {
     } catch (err) {
       console.error('Failed to set volume:', err)
       return castState.value.volume
+    }
+  }
+
+  async function setMute(muted: boolean): Promise<void> {
+    try {
+      await apiSetMute(muted)
+      castState.value = { ...castState.value, is_muted: muted }
+    } catch (err) {
+      console.error('Failed to set mute:', err)
     }
   }
 
@@ -281,6 +290,7 @@ export const useCastStore = defineStore('cast', () => {
     resumeCast,
     seek,
     setVolume,
+    setMute,
     openController,
     minimizeController,
     restoreController,

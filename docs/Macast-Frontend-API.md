@@ -1024,6 +1024,12 @@ export interface CastErrorEvent {
 | `parse_media_url(url)` | `{ url: string }` | `MediaInfo` | 解析链接 |
 | `get_settings()` | - | `AppSettings` | 获取设置 |
 | `save_settings(settings)` | `{ settings }` | `null` | 保存设置 |
+| `respond_cast_confirm(requestId, approved, policy)` | `{ request_id, approved, policy }` | `boolean` | 响应投屏确认 |
+| `get_guard_devices()` | - | `{ trusted, blacklisted }` | 获取确认设备列表 |
+| `remove_guard_device(deviceKey)` | `{ device_key }` | `boolean` | 移除确认设备 |
+| `set_guard_policy(deviceKey, policy)` | `{ device_key, policy }` | `boolean` | 修改设备策略 |
+| `get_guard_settings()` | - | `GuardSettings` | 获取确认设置 |
+| `save_guard_settings(settings)` | `{ enabled?, confirm_timeout? }` | `null` | 保存确认设置 |
 
 | 事件 | Payload | 说明 |
 |------|---------|------|
@@ -1031,3 +1037,100 @@ export interface CastErrorEvent {
 | `device_lost` | `{ id }` | 设备离线 |
 | `cast_state_changed` | `CastState` | 状态变化 |
 | `cast_error` | `{ message }` | 投屏错误 |
+| `cast_confirm_request` | `CastConfirmRequest` | 入站投屏确认请求 |
+
+---
+
+## 9. Device Guard（投屏设备确认）
+
+### 9.1 工作原理
+
+当外部设备尝试投屏到本机（DLNA Renderer）时，系统根据设备信任状态决定行为：
+
+| 状态 | 行为 |
+|------|------|
+| **trusted** | 直接放行 |
+| **blacklisted** | 直接拒绝（返回 SOAP Fault） |
+| **未知** | 发送 `cast_confirm_request` 事件，阻塞等待用户确认（15s 超时默认拒绝） |
+
+设备标识优先使用 UDN（通过 HTTP 反查 description.xml 获取），回退使用 IP。
+
+### 9.2 确认流程
+
+```
+1. 外部设备发送 SetAVTransportURI → Python 后端
+2. DeviceGuard.check() 判断设备状态
+3. 若未知 → emit "cast_confirm_request" 事件到前端
+4. Python HTTP 线程阻塞等待（15s 超时）
+5. 前端弹窗 → 用户选择 → 调用 respond_cast_confirm()
+6. Python 收到响应 → 放行或拒绝
+7. 若超时 → 自动拒绝
+```
+
+### 9.3 命令
+
+```typescript
+// 响应投屏确认
+invoke("respond_cast_confirm", {
+  requestId: string,    // 确认请求 ID
+  approved: boolean,    // 是否允许
+  policy: string        // "once" | "always" | "blacklist"
+})
+
+// 获取设备列表（信任 + 黑名单）
+invoke("get_guard_devices")
+// 返回: { trusted: GuardEntry[], blacklisted: GuardEntry[] }
+
+// 移除设备（从信任/黑名单中删除）
+invoke("remove_guard_device", { deviceKey: string })
+// deviceKey: UDN 或 IP
+
+// 修改设备策略
+invoke("set_guard_policy", {
+  deviceKey: string,    // UDN 或 IP
+  policy: string        // "trusted" | "blacklisted"
+})
+
+// 获取确认设置
+invoke("get_guard_settings")
+// 返回: { enabled: boolean, confirm_timeout: number }
+
+// 保存确认设置
+invoke("save_guard_settings", {
+  enabled?: boolean,
+  confirm_timeout?: number
+})
+```
+
+### 9.4 事件
+
+```typescript
+// 监听投屏确认请求
+listen("cast_confirm_request", (event) => {
+  const { request_id, device, timeout } = event.payload;
+  // device: { ip, udn, friendly_name, model_name }
+  // timeout: 等待秒数
+})
+
+// 类型定义
+interface CastConfirmRequest {
+  request_id: string;
+  device: {
+    ip: string;
+    udn: string;
+    friendly_name: string;
+    model_name: string;
+  };
+  timeout: number;
+}
+
+interface GuardEntry {
+  udn: string;
+  ip: string;
+  friendly_name: string;
+  policy: "trusted" | "blacklisted";
+  created_at: string;      // ISO 时间戳
+  last_seen_at: string;
+  cast_count: number;
+}
+```

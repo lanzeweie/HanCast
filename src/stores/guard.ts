@@ -141,7 +141,8 @@ export const useGuardStore = defineStore('guard', () => {
           // Try to bring window to focus
           import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
             const win = getCurrentWindow()
-            win.show().then(() => win.setFocus()).catch(() => {})
+            win.show().catch(() => {})
+            win.setFocus().catch(() => {})
           }).catch(() => {
             // Ignore — running outside Tauri or window API not available
           })

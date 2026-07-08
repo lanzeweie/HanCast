@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { useGuardStore } from '@/stores/guard'
+import GuardConfirmModal from '@/components/GuardConfirmModal.vue'
 
 const settingsStore = useSettingsStore()
 const themeStore = useThemeStore()
@@ -15,6 +16,8 @@ onMounted(() => {
 
 <template>
   <router-view />
+  <!-- Guard modal: always mounted, works on any page -->
+  <GuardConfirmModal />
 </template>
 
 <style>

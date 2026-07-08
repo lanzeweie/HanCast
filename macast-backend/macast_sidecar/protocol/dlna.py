@@ -660,6 +660,9 @@ class DLNAProtocol:
                 approved = self._device_guard.wait_for_confirm(pending)
                 if not approved:
                     logger.warning(f"Cast rejected by user: {self._caller_ip}")
+                    # 拒绝后重置状态，确保控制器轮询时看到"无媒体"
+                    self.set_state('TransportState', 'STOPPED')
+                    self.set_state('TransportStatus', 'OK')
                     raise Exception("Cast rejected by user")
 
         uri = data['CurrentURI'].value

@@ -32,7 +32,7 @@ class Config:
     def __init__(self):
         self.setting_path = os.path.join(SETTING_DIR, "macast_setting.json")
         self.settings: Dict = {}
-        self.friendly_name = f"Macast({platform.node()})"
+        self.friendly_name = f"HanCast({platform.node()})"
         self.version = "2.0.0"
         self.usn = str(uuid.uuid4())
 

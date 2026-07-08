@@ -210,7 +210,9 @@ HanCast/
 
 ## 许可证
 
-[GPL-3.0](LICENSE) — 基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 二次开发，继承原项目协议。
+[GPL-3.0](LICENSE) © 2024-2026 [lanzeweie](https://github.com/lanzeweie)
+
+基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 二次开发，继承原项目协议。
 
 ---
 
@@ -219,3 +221,8 @@ HanCast/
 - [xfangfang/Macast](https://github.com/xfangfang/Macast) — 原始项目
 - [Tauri](https://tauri.app/) — 跨平台桌面应用框架
 - [akFace/mpv.config](https://github.com/akFace/mpv.config) — MPV 主题皮肤（modernz）
+
+还差什么
+1.更新
+2.MPV
+3.自启

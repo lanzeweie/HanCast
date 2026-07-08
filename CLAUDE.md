@@ -272,12 +272,44 @@ cd macast-backend && uv run python -m macast_sidecar.main
 
 ### 生产构建
 ```bash
-# 构建 Tauri 应用
+# 构建 Tauri 应用（prebuild 自动同步版本号）
 cargo tauri build
 
 # 构建 Python Sidecar（PyInstaller）
 cd macast-backend && python scripts/build_sidecar.py
 ```
+
+### 版本管理
+
+项目采用 **单一真相源（SSOT）** 策略，以 `package.json` 的 `version` 字段为唯一版本源头。
+
+**架构**：
+```
+package.json (SSOT)
+      │
+      ▼
+scripts/sync-version.cjs
+      │
+      ├──▶ src-tauri/tauri.conf.json
+      ├──▶ src-tauri/Cargo.toml
+      ├──▶ macast-backend/pyproject.toml
+      ├──▶ macast-backend/macast_sidecar/utils/config.py
+      ├──▶ src/api/commands.ts (mock 数据)
+      └──▶ src/stores/settings.ts (默认值)
+```
+
+**用法**：
+```bash
+# 查看当前版本
+npm run version:sync
+
+# 设置新版本并同步所有文件
+npm run version:set -- 2.0.0
+
+# 构建时自动同步（prebuild 钩子，已内置在 npm run build 中）
+```
+
+**注意**：不要手动修改各文件中的版本号，统一通过 `npm run version:set` 命令管理。
 
 ### 测试
 ```bash

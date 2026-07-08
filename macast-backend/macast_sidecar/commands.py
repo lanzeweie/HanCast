@@ -21,6 +21,7 @@ from .types.cast import CastState
 from .types.session import DeviceCastSession
 from .utils.config import Config
 from .security.guard import DeviceGuard
+from .utils.mpv_manager import MpvManager
 
 import requests
 
@@ -36,11 +37,24 @@ def find_mpv_path() -> str:
 
     # 2. 检查项目目录下的 mpv
     if getattr(sys, 'frozen', False):
-        # PyInstaller 打包后的路径
-        base_path = sys._MEIPASS
+        # Nuitka / Tauri 打包后的路径
+        exe_dir = os.path.dirname(sys.executable)
+        resources_dir = os.path.join(exe_dir, "resources")
+        if os.path.isdir(resources_dir):
+            base_path = resources_dir
+        else:
+            base_path = exe_dir
     else:
-        # 开发环境路径 - macast-backend 的父目录
-        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        # 开发环境路径
+        # file: macast-backend/macast_sidecar/commands.py
+        # 向上 4 级: macast_sidecar → macast-backend → 项目根
+        base_path = os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__))
+                )
+            )
+        )
 
     # Windows
     if os.name == 'nt':
@@ -74,9 +88,11 @@ class CommandHandler:
         self.config = Config()
         self.protocol = DLNAProtocol()
 
-        # 查找 MPV 路径
-        mpv_path = find_mpv_path()
-        logger.info(f"MPV path: {mpv_path}")
+        # MPV 管理器
+        self.mpv_manager = MpvManager(self.config)
+        mpv_info = self.mpv_manager.check()
+        mpv_path = mpv_info.path or "mpv"
+        logger.info(f"MPV status: {mpv_info.status.value}, path: {mpv_path}")
         self.renderer = MPVRenderer(path=mpv_path)
 
         self.media_parser = MediaParser()
@@ -150,6 +166,10 @@ class CommandHandler:
             "set_guard_policy": self._set_guard_policy,
             "get_guard_settings": self._get_guard_settings,
             "save_guard_settings": self._save_guard_settings,
+
+            # MPV 管理
+            "check_mpv": self._check_mpv,
+            "set_mpv_path": self._set_mpv_path,
         }
 
         # 设置回调
@@ -230,6 +250,13 @@ class CommandHandler:
     def _should_ignore_device(self, device_udn: str) -> bool:
         """检查设备是否应该被忽略（隐藏）"""
         return self.config.is_device_hidden(device_udn)
+
+    def _emit_event(self, event_name: str, data: dict):
+        """推送事件到前端"""
+        print(json.dumps({
+            "event": event_name,
+            "data": data
+        }, ensure_ascii=False), flush=True)
 
     def _on_protocol_state_change(self, name: str, value) -> None:
         """DLNA 状态变化回调 → 推送事件到前端"""
@@ -687,3 +714,22 @@ class CommandHandler:
             self.device_guard.enabled = params["enabled"]
         if "confirm_timeout" in params:
             self.device_guard.confirm_timeout = params["confirm_timeout"]
+
+    # ── MPV 管理 ──
+
+    def _check_mpv(self, params: dict) -> dict:
+        """检查 MPV 可用状态"""
+        info = self.mpv_manager.check()
+        return info.to_dict()
+
+    def _set_mpv_path(self, params: dict) -> dict:
+        """手动指定 MPV 路径"""
+        path = params["path"]
+        info = self.mpv_manager.set_path(path)
+
+        # 设置成功后重新加载渲染器
+        if info.status.value == "ready" and info.path:
+            logger.info(f"Reloading MPV renderer with path: {info.path}")
+            self.renderer = MPVRenderer(path=info.path)
+
+        return info.to_dict()

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useUpdateStore } from '@/stores/update'
 import Modal from './Modal.vue'
+import DownloadModal from './DownloadModal.vue'
 
 const { t } = useI18n()
 const updateStore = useUpdateStore()
+const showDownloadModal = ref(false)
 
 const isVisible = computed(() => updateStore.showModal && !!updateStore.updateInfo?.has_update)
 const info = computed(() => updateStore.updateInfo)
@@ -31,20 +33,16 @@ function onClose() {
 }
 
 function onDownload() {
-  updateStore.openDownload()
+  showDownloadModal.value = true
+}
+
+function onDownloadClose() {
+  showDownloadModal.value = false
 }
 </script>
 
 <template>
-  <Modal :visible="isVisible" :title="t('update.title')" :show-icon="true" @close="onClose">
-    <template #icon>
-      <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#5B9BF5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </svg>
-    </template>
-
+  <Modal :visible="isVisible" @close="onClose">
     <div class="update-content">
       <div class="update-version">
         <span class="update-current">{{ info?.current }}</span>
@@ -65,6 +63,7 @@ function onDownload() {
       <button class="btn-confirm" @click="onDownload">{{ t('update.download') }}</button>
     </template>
   </Modal>
+  <DownloadModal :visible="showDownloadModal" @close="onDownloadClose" />
 </template>
 
 <style scoped>

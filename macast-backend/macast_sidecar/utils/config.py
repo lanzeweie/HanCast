@@ -33,7 +33,7 @@ class Config:
         self.setting_path = os.path.join(SETTING_DIR, "macast_setting.json")
         self.settings: Dict = {}
         self.friendly_name = f"HanCast({platform.node()})"
-        self.version = "2.0.0"
+        self.version = "2.0.1"
         self.usn = str(uuid.uuid4())
 
         # 确保配置目录存在
@@ -162,6 +162,18 @@ class Config:
         """保存设备确认配置"""
         self.settings['device_guard'] = guard_cfg
         self.save()
+
+    # ── MPV 配置 ──
+
+    def get_mpv(self) -> Dict:
+        """获取 MPV 配置"""
+        return self.settings.get('mpv', {})
+
+    def set_mpv(self, mpv_cfg: Dict):
+        """保存 MPV 配置"""
+        self.settings['mpv'] = mpv_cfg
+        self.save()
+        logger.info(f"MPV config saved: {mpv_cfg}")
 
     # ── 更新忽略版本 ──
 

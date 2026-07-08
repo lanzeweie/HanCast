@@ -1,6 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { defineStore } from 'pinia'
-import type { UpdateInfo } from '@/api/commands'
+import type { UpdateInfo } from '@/types/update'
 import { checkUpdate, ignoreUpdateVersion as apiIgnoreUpdateVersion } from '@/api/commands'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 

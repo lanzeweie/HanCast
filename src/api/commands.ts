@@ -7,6 +7,7 @@ import type { MediaInfo } from '@/types/media'
 import type { CastState, CastUrlInfo } from '@/types/cast'
 import type { AppSettings } from '@/types/settings'
 import type { GuardDevicesResponse, GuardSettings } from '@/types/guard'
+import type { UpdateInfo } from '@/types/update'
 
 // ── Helpers ──
 
@@ -85,7 +86,7 @@ const MOCK_DEVICES: Device[] = [
 const MOCK_SETTINGS: AppSettings = {
   usn: 'hancast-uuid-001',
   friendly_name: 'HanCast',
-  version: '2.0.0',
+  version: '2.0.1',
   media_port: 8080,
   default_device: null,
   settings: {},
@@ -173,11 +174,11 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     case 'check_update':
       return {
         has_update: false,
-        current: '2.0.0',
-        latest: '2.0.0',
+        current: '2.0.1',
+        latest: '2.0.1',
         url: '',
         body: '',
-        source: '',
+        source: 'github',
       } as T
     case 'ignore_update_version':
       return true as T
@@ -354,15 +355,6 @@ export async function saveGuardSettings(settings: {
 }
 
 // ── Update Check ──
-
-export interface UpdateInfo {
-  has_update: boolean
-  current: string
-  latest: string
-  url: string
-  body: string
-  source: string
-}
 
 export async function checkUpdate(currentVersion: string, force?: boolean): Promise<UpdateInfo> {
   const invoke = await initInvoke()

@@ -348,6 +348,23 @@ async fn save_guard_settings(
     Ok(())
 }
 
+// ── MPV Management ──
+
+#[tauri::command]
+async fn check_mpv(sidecar: State<'_, SidecarManager>) -> Result<serde_json::Value, String> {
+    sidecar.send_command("check_mpv", serde_json::json!({})).await
+}
+
+#[tauri::command]
+async fn set_mpv_path(
+    sidecar: State<'_, SidecarManager>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command("set_mpv_path", serde_json::json!({"path": path}))
+        .await
+}
+
 /// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
 const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
@@ -550,6 +567,8 @@ pub fn run() {
             set_guard_policy,
             get_guard_settings,
             save_guard_settings,
+            check_mpv,
+            set_mpv_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,7 @@
 [package]
 name = "hancast"
 # version synced from tauri.conf.json
-version = "2.0.0"
+version = "2.0.1"
 description = "HanCast: A cross-platform media casting application (fork of xfangfang/Macast)"
 authors = ["Han"]
 edition = "2021"

@@ -100,6 +100,7 @@
   "update.changelog": "更新内容",
   "update.ignoreThisVersion": "此版本不再提示",
   "update.download": "前往下载",
+  "update.chooseSource": "选择下载源",
   "update.checking": "检查中...",
   "update.latestAlready": "已是最新版本 ✓",
   "update.checkFailed": "检查失败，请稍后重试"

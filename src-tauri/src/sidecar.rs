@@ -24,15 +24,31 @@ pub struct SidecarManager {
 
 impl SidecarManager {
     /// Spawn the Python sidecar and start the stdout reader.
+    ///
+    /// - Dev (`cargo tauri dev`):     `uv run python -m macast_sidecar.main`
+    /// - Prod (`cargo tauri build`):  bundled Nuitka sidecar binary
     pub fn new(app: AppHandle) -> Result<Self, String> {
-        let (rx, child) = app
-            .shell()
-            .command("uv")
-            .args(["run", "python", "-m", "macast_sidecar.main"])
-            .env("PYTHONIOENCODING", "utf-8")
-            .current_dir("../macast-backend")
-            .spawn()
-            .map_err(|e| format!("Failed to spawn sidecar: {e}"))?;
+        let (rx, child) = {
+            #[cfg(debug_assertions)]
+            {
+                app.shell()
+                    .command("uv")
+                    .args(["run", "python", "-m", "macast_sidecar.main"])
+                    .env("PYTHONIOENCODING", "utf-8")
+                    .current_dir("../macast-backend")
+                    .spawn()
+                    .map_err(|e| format!("Failed to spawn sidecar via uv: {e}"))?
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                app.shell()
+                    .sidecar("macast-sidecar")
+                    .map_err(|e| format!("Sidecar binary not found: {e}"))?
+                    .env("PYTHONIOENCODING", "utf-8")
+                    .spawn()
+                    .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
+            }
+        };
 
         let child = Arc::new(Mutex::new(Some(child)));
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =

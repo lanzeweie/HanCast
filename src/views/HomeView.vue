@@ -3,6 +3,7 @@ import TitleBar from '@/components/TitleBar.vue'
 import MediaInput from '@/components/MediaInput.vue'
 import DeviceList from '@/components/DeviceList.vue'
 import CastController from '@/components/CastController.vue'
+import GuardConfirmModal from '@/components/GuardConfirmModal.vue'
 import Footer from '@/components/Footer.vue'
 </script>
 
@@ -16,6 +17,8 @@ import Footer from '@/components/Footer.vue'
     <Footer />
     <!-- Embedded cast controller modal -->
     <CastController />
+    <!-- Device guard confirmation modal -->
+    <GuardConfirmModal />
   </div>
 </template>
 

@@ -4,13 +4,17 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
+import { useGuardStore } from '@/stores/guard'
+import GuardDeviceList from '@/components/GuardDeviceList.vue'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const settingsStore = useSettingsStore()
 const themeStore = useThemeStore()
+const guardStore = useGuardStore()
 
 const friendlyName = ref('')
+const showGuardDevices = ref(false)
 
 onMounted(async () => {
   await settingsStore.fetchSettings()
@@ -31,6 +35,23 @@ function onThemeChange(mode: ThemeMode) {
 
 async function saveFriendlyName() {
   await settingsStore.saveSettings({ friendly_name: friendlyName.value })
+}
+
+function onGuardEnabledChange(e: Event) {
+  const enabled = (e.target as HTMLInputElement).checked
+  guardStore.saveSettings({ enabled })
+}
+
+function onGuardTimeoutChange(e: Event) {
+  const timeout = Number((e.target as HTMLSelectElement).value)
+  guardStore.saveSettings({ confirm_timeout: timeout })
+}
+
+function toggleGuardDevices() {
+  showGuardDevices.value = !showGuardDevices.value
+  if (showGuardDevices.value) {
+    guardStore.fetchDevices()
+  }
 }
 </script>
 
@@ -90,6 +111,60 @@ async function saveFriendlyName() {
           />
         </div>
 
+      </section>
+
+      <!-- Cast Security (Device Guard) -->
+      <section class="settings__section">
+        <h3 class="settings__section-title">{{ t('guard.title') }}</h3>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('guard.enable') }}</span>
+          <label class="settings__toggle">
+            <input
+              type="checkbox"
+              :checked="guardStore.settings.enabled"
+              @change="onGuardEnabledChange"
+            />
+            <span class="settings__toggle-slider" />
+          </label>
+        </div>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('guard.timeout') }}</span>
+          <select
+            class="settings__select"
+            :value="guardStore.settings.confirm_timeout"
+            @change="onGuardTimeoutChange"
+            :disabled="!guardStore.settings.enabled"
+          >
+            <option :value="10">{{ t('guard.seconds', { n: 10 }) }}</option>
+            <option :value="15">{{ t('guard.seconds', { n: 15 }) }}</option>
+            <option :value="30">{{ t('guard.seconds', { n: 30 }) }}</option>
+            <option :value="60">{{ t('guard.seconds', { n: 60 }) }}</option>
+          </select>
+        </div>
+
+        <button class="settings__item settings__item--clickable" @click="toggleGuardDevices">
+          <span class="settings__label">
+            {{ t('guard.trusted') }}
+            <span v-if="guardStore.trustedDevices.length" class="settings__badge">
+              {{ guardStore.trustedDevices.length }}
+            </span>
+          </span>
+          <svg
+            class="settings__chevron"
+            :class="{ 'settings__chevron--open': showGuardDevices }"
+            viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+
+        <Transition name="settings-expand">
+          <div v-if="showGuardDevices" class="settings__guard-list">
+            <GuardDeviceList />
+          </div>
+        </Transition>
       </section>
 
       <!-- About -->
@@ -248,5 +323,98 @@ async function saveFriendlyName() {
 
 .settings__link:hover {
   text-decoration: underline;
+}
+
+/* ── Toggle switch ── */
+.settings__toggle {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.settings__toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings__toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border);
+  border-radius: var(--r-full);
+  transition: background var(--transition-fast);
+}
+
+.settings__toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 2px;
+  bottom: 2px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.settings__toggle input:checked + .settings__toggle-slider {
+  background: var(--primary);
+}
+
+.settings__toggle input:checked + .settings__toggle-slider::before {
+  transform: translateX(18px);
+}
+
+/* ── Clickable item ── */
+.settings__item--clickable {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.settings__item--clickable:hover {
+  background: var(--bg-secondary);
+}
+
+/* ── Badge ── */
+.settings__badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: var(--r-full);
+  font-weight: 600;
+  margin-left: var(--sp-xs);
+}
+
+/* ── Chevron ── */
+.settings__chevron {
+  color: var(--text-tertiary);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.settings__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── Guard list expand ── */
+.settings__guard-list {
+  overflow: hidden;
+}
+
+.settings-expand-enter-active,
+.settings-expand-leave-active {
+  transition: all var(--transition-normal);
+  max-height: 500px;
+}
+
+.settings-expand-enter-from,
+.settings-expand-leave-to {
+  opacity: 0;
+  max-height: 0;
 }
 </style>

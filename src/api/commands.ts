@@ -6,6 +6,7 @@ import type { Device } from '@/types/device'
 import type { MediaInfo } from '@/types/media'
 import type { CastState, CastUrlInfo } from '@/types/cast'
 import type { AppSettings } from '@/types/settings'
+import type { GuardDevicesResponse, GuardSettings } from '@/types/guard'
 
 // ── Helpers ──
 
@@ -151,6 +152,24 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
         position: '00:02:15',
         status: 'PLAYING',
       } as T
+    case 'get_guard_devices':
+      return {
+        trusted: [],
+        blacklisted: [],
+      } as T
+    case 'get_guard_settings':
+      return {
+        enabled: true,
+        confirm_timeout: 15,
+      } as T
+    case 'respond_cast_confirm':
+      return true as T
+    case 'remove_guard_device':
+      return true as T
+    case 'set_guard_policy':
+      return true as T
+    case 'save_guard_settings':
+      return {} as T
     default:
       return {} as T
   }
@@ -279,4 +298,46 @@ export async function closeWindow(): Promise<void> {
   } catch {
     // Ignore in browser dev
   }
+}
+
+// ── Device Guard ──
+
+export async function respondCastConfirm(
+  requestId: string,
+  approved: boolean,
+  policy: string,
+): Promise<boolean> {
+  const invoke = await initInvoke()
+  return invoke<boolean>('respond_cast_confirm', { requestId, approved, policy })
+}
+
+export async function getGuardDevices(): Promise<GuardDevicesResponse> {
+  const invoke = await initInvoke()
+  return invoke<GuardDevicesResponse>('get_guard_devices')
+}
+
+export async function removeGuardDevice(deviceKey: string): Promise<boolean> {
+  const invoke = await initInvoke()
+  return invoke<boolean>('remove_guard_device', { deviceKey })
+}
+
+export async function setGuardPolicy(
+  deviceKey: string,
+  policy: 'trusted' | 'blacklisted',
+): Promise<boolean> {
+  const invoke = await initInvoke()
+  return invoke<boolean>('set_guard_policy', { deviceKey, policy })
+}
+
+export async function getGuardSettings(): Promise<GuardSettings> {
+  const invoke = await initInvoke()
+  return invoke<GuardSettings>('get_guard_settings')
+}
+
+export async function saveGuardSettings(settings: {
+  enabled?: boolean
+  confirm_timeout?: number
+}): Promise<void> {
+  const invoke = await initInvoke()
+  await invoke('save_guard_settings', { settings })
 }

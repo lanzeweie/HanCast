@@ -8,6 +8,8 @@
     "core:window:default",
     "core:window:allow-minimize",
     "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
     "core:event:default",
     "shell:allow-open",
     "shell:allow-execute",

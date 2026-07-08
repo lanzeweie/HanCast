@@ -245,6 +245,78 @@ async fn save_settings(
     Ok(())
 }
 
+// ── Device Guard (投屏确认) ──
+
+#[tauri::command]
+async fn respond_cast_confirm(
+    sidecar: State<'_, SidecarManager>,
+    request_id: String,
+    approved: bool,
+    policy: String,
+) -> Result<bool, String> {
+    let result = sidecar
+        .send_command(
+            "respond_cast_confirm",
+            serde_json::json!({"request_id": request_id, "approved": approved, "policy": policy}),
+        )
+        .await?;
+    Ok(result.as_bool().unwrap_or(false))
+}
+
+#[tauri::command]
+async fn get_guard_devices(sidecar: State<'_, SidecarManager>) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command("get_guard_devices", serde_json::json!({}))
+        .await
+}
+
+#[tauri::command]
+async fn remove_guard_device(
+    sidecar: State<'_, SidecarManager>,
+    device_key: String,
+) -> Result<bool, String> {
+    let result = sidecar
+        .send_command(
+            "remove_guard_device",
+            serde_json::json!({"device_key": device_key}),
+        )
+        .await?;
+    Ok(result.as_bool().unwrap_or(false))
+}
+
+#[tauri::command]
+async fn set_guard_policy(
+    sidecar: State<'_, SidecarManager>,
+    device_key: String,
+    policy: String,
+) -> Result<bool, String> {
+    let result = sidecar
+        .send_command(
+            "set_guard_policy",
+            serde_json::json!({"device_key": device_key, "policy": policy}),
+        )
+        .await?;
+    Ok(result.as_bool().unwrap_or(false))
+}
+
+#[tauri::command]
+async fn get_guard_settings(sidecar: State<'_, SidecarManager>) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command("get_guard_settings", serde_json::json!({}))
+        .await
+}
+
+#[tauri::command]
+async fn save_guard_settings(
+    sidecar: State<'_, SidecarManager>,
+    settings: serde_json::Value,
+) -> Result<(), String> {
+    sidecar
+        .send_command("save_guard_settings", settings)
+        .await?;
+    Ok(())
+}
+
 /// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
 const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
@@ -403,6 +475,12 @@ pub fn run() {
             set_mute,
             get_settings,
             save_settings,
+            respond_cast_confirm,
+            get_guard_devices,
+            remove_guard_device,
+            set_guard_policy,
+            get_guard_settings,
+            save_guard_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

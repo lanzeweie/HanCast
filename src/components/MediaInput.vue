@@ -158,6 +158,22 @@ const mediaTitle = computed(() => {
   return title.length > 30 ? title.slice(0, 30) + '...' : title
 })
 
+// ── 错误信息翻译 ──
+// 后端返回英文错误，前端用正则匹配翻译
+function translateError(msg: string): string {
+  // Unsupported format: .7z → media.unsupportedFormat
+  const unsupportedMatch = msg.match(/^Unsupported format:\s*(.+)$/i)
+  if (unsupportedMatch) {
+    return t('media.unsupportedFormat', { ext: unsupportedMatch[1] })
+  }
+  return msg
+}
+
+const translatedError = computed(() => {
+  if (!mediaStore.error) return null
+  return translateError(mediaStore.error)
+})
+
 // ── Formatters ──
 
 function formatFileSize(bytes: number | null): string | null {
@@ -195,25 +211,57 @@ const mediaSubtitle = computed(() => {
   return parts.join(' · ') || categoryLabel.value
 })
 
-// ── Tauri Native Drag & Drop ──
-// Tauri 2.0 intercepts OS-level file drops; HTML5 drag events never fire.
-// We use the raw tauri://drag-drop event for maximum compatibility.
-
-let unlistenDrag: (() => void) | null = null
+// ── Tauri detection & drag-drop ──
+// dragDropEnabled: true → Tauri native handler provides absolute file paths.
+// URL drags from browsers produce empty paths; we show a paste hint in that case.
+//
+// ⚠️ 已知的 Tauri 架构限制（非本项目 bug）
+//
+// Tauri 的拖拽系统采用原生 OS 级拦截机制，与 WebView 内的 HTML5 拖拽 API 存在根本性冲突：
+//   - dragDropEnabled: true  → 可获取文件绝对路径，但 HTML5 drag 事件被完全阻断
+//   - dragDropEnabled: false → HTML5 事件可用，但 Chromium WebView 不暴露文件绝对路径
+//
+// 实验验证（本项目 2026-07）：
+//   - 文件拖入：原生事件 ✅ paths=['C:\...\1.mp4']，HTML5 事件 ❌ 被拦截
+//   - URL 拖入（首次）：原生事件 ❌ 无反应，HTML5 事件 ❌ 被拦截
+//   - URL 拖入（文件拖过后）：原生事件 ⚠️ paths=[]，HTML5 事件 ❌ DataTransfer 无 text/uri-list
+//
+// 社区确认的已知限制：
+//   - GitHub Issue #14055 (2025-08): React 开发者复现完全一致的场景
+//     → Tauri 团队标记 "not planned"，原因是 Windows 平台技术限制，无法直接修复
+//   - GitHub Issue #14373 (2025-10): 更广泛的拖拽机制讨论
+//     → 核心维护者 FabianLars 确认正在开发"不会破坏原生行为的新替代实现"
+//     → dormouse 项目明确表示"等待上游 Tauri 修复 #14373"
+//   - Tauri v2 官方文档:
+//     "Disabling [dragDropEnabled] is required to use HTML5 drag and drop
+//      on the frontend on Windows."
+//
+// 当前策略：文件拖拽走原生 handler（完美），URL 拖拽引导用户粘贴（降级）。
+// 待 Tauri 上游修复后可统一为 HTML5 方案。
+//
 let inTauri = false
+let unlistenDrag: (() => void) | null = null
+const showPasteHint = ref(false)
 
-// ── HTML5 fallback for browser dev mode ──
+// Auto-hide paste hint when user interacts with URL input or media becomes ready
+watch(() => mediaStore.urlInput, (val) => {
+  if (val.trim()) showPasteHint.value = false
+})
+watch(() => mediaStore.state, (s) => {
+  if (s === 'ready' || s === 'parsing') showPasteHint.value = false
+})
+
+// ── HTML5 drag events (for browser dev mode without Tauri) ──
 const dragCounter = ref(0)
 
 function onHtmlDragEnter(e: DragEvent) {
-  if (inTauri) return
   e.preventDefault()
   dragCounter.value++
   mediaStore.setDragOver()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 }
 
 function onHtmlDragLeave(e: DragEvent) {
-  if (inTauri) return
   e.preventDefault()
   dragCounter.value--
   if (dragCounter.value <= 0) {
@@ -223,59 +271,86 @@ function onHtmlDragLeave(e: DragEvent) {
 }
 
 function onHtmlDragOver(e: DragEvent) {
-  if (inTauri) return
   e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
 }
 
 function onHtmlDrop(e: DragEvent) {
-  if (inTauri) return
   e.preventDefault()
   dragCounter.value = 0
   mediaStore.clearDragOver()
-  const files = e.dataTransfer?.files
-  if (files && files.length > 0) {
-    mediaStore.parseFile(files[0])
+
+  // Browser dev mode only: try to extract URL from DataTransfer
+  const dt = e.dataTransfer
+  if (!dt) return
+
+  if (dt.types.includes('text/uri-list')) {
+    const raw = dt.getData('text/uri-list')
+    if (raw) {
+      const urls = raw.split('\n').filter(l => l.trim() && !l.startsWith('#'))
+      if (urls.length > 0) {
+        const url = urls[0].trim()
+        if (/^https?:\/\//i.test(url)) {
+          mediaStore.setInputChange(url)
+          mediaStore.parseUrl(url)
+          return
+        }
+      }
+    }
+  }
+  if (dt.types.includes('text/plain')) {
+    const text = dt.getData('text/plain')?.trim()
+    if (text && /^https?:\/\//i.test(text)) {
+      mediaStore.setInputChange(text)
+      mediaStore.parseUrl(text)
+    }
   }
 }
 
+// ── Tauri native drag-drop (file paths) ──
+
 onMounted(async () => {
-  // Step 1: Detect Tauri runtime (independent of drag-drop)
+  // Detect Tauri runtime
   if (window.__TAURI_INTERNALS__) {
     try {
       const core = await import('@tauri-apps/api/core')
       convertFileSrc.value = core.convertFileSrc
       inTauri = true
-      console.log('[MediaInput] Tauri runtime detected')
     } catch {
       // Module load failed
     }
   }
 
-  // Step 2: Register drag-drop listener (may fail independently)
-  try {
-    const { getCurrentWebview } = await import('@tauri-apps/api/webview')
-    const webview = getCurrentWebview()
+  // Register native drag-drop handler (provides absolute file paths)
+  if (inTauri) {
+    try {
+      const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+      const webview = getCurrentWebview()
 
-    unlistenDrag = await webview.onDragDropEvent((event) => {
-      console.log('[MediaInput] drag-drop:', event.payload.type)
-      if (event.payload.type === 'enter' || event.payload.type === 'over') {
-        isDragOver.value = true
-        mediaStore.setDragOver()
-      } else if (event.payload.type === 'drop') {
-        isDragOver.value = false
-        mediaStore.clearDragOver()
-        const paths = event.payload.paths
-        if (paths && paths.length > 0) {
-          mediaStore.parseFile(paths[0])
+      unlistenDrag = await webview.onDragDropEvent((event) => {
+        if (event.payload.type === 'enter' || event.payload.type === 'over') {
+          mediaStore.setDragOver()
+        } else if (event.payload.type === 'drop') {
+          mediaStore.clearDragOver()
+          const paths = event.payload.paths
+          if (paths && paths.length > 0) {
+            // File drop: has absolute path
+            showPasteHint.value = false
+            mediaStore.parseFile(paths[0])
+          } else {
+            // URL drag from browser: paths is empty
+            // WebView2 blocks HTML5 DataTransfer access, so we can't extract
+            // the URL automatically. Prompt user to paste it.
+            showPasteHint.value = true
+            mediaStore.urlInput = ''
+            mediaStore.state = 'idle'
+          }
+        } else {
+          mediaStore.clearDragOver()
         }
-      } else {
-        isDragOver.value = false
-        mediaStore.clearDragOver()
-      }
-    })
-    console.log('[MediaInput] drag-drop listener registered')
-  } catch (err) {
-    console.warn('[MediaInput] drag-drop not available:', err)
+      })
+    } catch {
+    }
   }
 })
 
@@ -359,7 +434,6 @@ async function openFilePicker() {
   pickerError.value = null
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
-    console.log('[MediaInput] Opening Tauri dialog...')
     const selected = await open({
       multiple: false,
       filters: [{
@@ -367,16 +441,10 @@ async function openFilePicker() {
         extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
       }]
     })
-    console.log('[MediaInput] Dialog returned:', typeof selected, JSON.stringify(selected))
     if (selected && typeof selected === 'string') {
-      console.log('[MediaInput] Parsing file:', selected)
       await mediaStore.parseFile(selected)
-      console.log('[MediaInput] Parse done, state:', mediaStore.state, 'error:', mediaStore.error)
-    } else if (selected === null) {
-      console.log('[MediaInput] User cancelled dialog')
     }
   } catch (err: any) {
-    console.error('[MediaInput] Tauri dialog failed:', err)
     pickerError.value = String(err?.message ?? err)
     // Browser fallback
     fileInput.value?.click()
@@ -403,8 +471,8 @@ function onFileSelected(e: Event) {
     }"
     @dragenter="onHtmlDragEnter"
     @dragleave="onHtmlDragLeave"
-    @dragover="onHtmlDragOver"
-    @drop="onHtmlDrop"
+    @dragover.prevent="onHtmlDragOver"
+    @drop.prevent="onHtmlDrop"
   >
     <input
       ref="fileInput"
@@ -438,10 +506,13 @@ function onFileSelected(e: Event) {
         <span>{{ t('media.parsing') }}</span>
       </div>
       <template v-else>
-        <p class="media-input__hint">{{ t('media.dragHint') }}</p>
+        <p v-if="showPasteHint" class="media-input__paste-hint">
+          🔗 {{ t('media.urlDragDetected') }}
+        </p>
+        <p v-else class="media-input__hint">{{ t('media.dragHint') }}</p>
         <p class="media-input__subhint">{{ t('media.pasteHint') }}</p>
         <p v-if="pickerError" class="media-input__error">⚠ {{ pickerError }}</p>
-        <p v-if="mediaStore.error" class="media-input__error">⚠ {{ mediaStore.error }}</p>
+        <p v-if="translatedError" class="media-input__error">⚠ {{ translatedError }}</p>
       </template>
     </div>
 
@@ -544,11 +615,28 @@ function onFileSelected(e: Event) {
         <button class="btn-cancel" @click="showDeviceModal = false">{{ t('common.cancel') }}</button>
       </template>
     </Modal>
+
+    <!-- ═══ Drag Overlay (遮罩 + 动效) ═══ -->
+    <Transition name="drag-overlay">
+      <div v-if="isDragOver || mediaStore.state === 'dragover'" class="media-input__overlay">
+        <div class="media-input__overlay-content">
+          <div class="media-input__overlay-icon">
+            <svg viewBox="0 0 64 64" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="8" y="18" width="48" height="36" rx="4" />
+              <path d="M32 28v16M24 36l8 8 8-8" />
+            </svg>
+          </div>
+          <p class="media-input__overlay-text">{{ t('media.dropHere') }}</p>
+          <p class="media-input__overlay-subtext">{{ t('media.dropHint') }}</p>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
 .media-input {
+  position: relative;
   border: 2px dashed var(--border-dashed);
   border-radius: var(--r-xl);
   padding: var(--sp-xl);
@@ -559,6 +647,7 @@ function onFileSelected(e: Event) {
   transition: border-color var(--transition-normal), background var(--transition-normal);
   background: var(--bg-card);
   margin: 0 var(--sp-lg);
+  overflow: hidden;
 }
 
 .media-input--dragover {
@@ -604,6 +693,18 @@ function onFileSelected(e: Event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.media-input__paste-hint {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--primary);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 /* ── Parsing spinner ── */
@@ -880,5 +981,97 @@ function onFileSelected(e: Event) {
 .device-modal__badge--casting {
   background: rgba(251, 191, 36, 0.15);
   color: #D97706;
+}
+
+/* ═══ Drag Overlay ═══ */
+.media-input__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--primary-rgb, 59, 130, 246), 0.15);
+  backdrop-filter: blur(4px);
+  border-radius: var(--r-xl);
+  border: 2px dashed var(--primary);
+  z-index: 10;
+}
+
+.media-input__overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-sm);
+  animation: bounce-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.media-input__overlay-icon {
+  color: var(--primary);
+  animation: float 1.5s ease-in-out infinite;
+}
+
+.media-input__overlay-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.media-input__overlay-subtext {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Transition animations */
+.drag-overlay-enter-active {
+  animation: fade-in 0.2s ease-out;
+}
+
+.drag-overlay-leave-active {
+  animation: fade-out 0.15s ease-in;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes bounce-in {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 </style>

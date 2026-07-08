@@ -114,6 +114,10 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       return MOCK_CAST_STATE as T
     case 'get_settings':
       return MOCK_SETTINGS as T
+    case 'get_autostart':
+      return false as T
+    case 'set_autostart':
+      return undefined as T
     case 'parse_media_file': {
       const fp = String(args?.filePath ?? '')
       const name = fp.split(/[/\\]/).pop() ?? 'Unknown'
@@ -291,6 +295,17 @@ export async function getSettings(): Promise<AppSettings> {
 export async function saveSettings(settings: Partial<AppSettings>): Promise<void> {
   const invoke = await initInvoke()
   await invoke('save_settings', { settings })
+}
+
+// Autostart
+export async function getAutostart(): Promise<boolean> {
+  const invoke = await initInvoke()
+  return invoke<boolean>('get_autostart')
+}
+
+export async function setAutostart(enabled: boolean): Promise<void> {
+  const invoke = await initInvoke()
+  await invoke('set_autostart', { enabled })
 }
 
 // Window control

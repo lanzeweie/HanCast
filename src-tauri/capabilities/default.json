@@ -16,6 +16,7 @@
     "shell:allow-spawn",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text",
-    "dialog:default"
+    "dialog:default",
+    "autostart:default"
   ]
 }

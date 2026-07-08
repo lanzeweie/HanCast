@@ -113,6 +113,18 @@ async function onCheckUpdate() {
             <option value="en-US">English</option>
           </select>
         </div>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('settings.autoStart') }}</span>
+          <label class="settings__toggle">
+            <input
+              type="checkbox"
+              :checked="settingsStore.autostart"
+              @change="settingsStore.toggleAutostart()"
+            />
+            <span class="settings__toggle-slider" />
+          </label>
+        </div>
       </section>
 
       <!-- Cast -->

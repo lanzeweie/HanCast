@@ -3,10 +3,11 @@ mod sidecar;
 use sidecar::SidecarManager;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, State,
 };
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 /// 当前投屏 URL 缓存（供托盘菜单使用）
@@ -368,12 +369,41 @@ async fn set_mpv_path(
 /// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
 const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
+// ── Autostart ──
+
+#[tauri::command]
+fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    if enabled {
+        app.autolaunch()
+            .enable()
+            .map_err(|e| e.to_string())?;
+    } else {
+        app.autolaunch()
+            .disable()
+            .map_err(|e| e.to_string())?;
+    }
+    // 通知托盘菜单同步 CheckMenuItem 状态
+    let _ = app.emit("autostart-changed", enabled);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
         .on_menu_event(|app, event| {
             if event.id() == "show" {
                 if let Some(window) = app.get_webview_window("main") {
@@ -390,9 +420,26 @@ pub fn run() {
                 }
             } else if event.id() == "quit" {
                 app.exit(0);
+            } else if event.id() == "autostart" {
+                // CheckMenuItem 已自动切换 checked 状态，执行实际操作
+                if app.autolaunch().is_enabled().unwrap_or(false) {
+                    app.autolaunch().disable().ok();
+                } else {
+                    app.autolaunch().enable().ok();
+                }
+                // 通知前端同步状态
+                let enabled = app.autolaunch().is_enabled().unwrap_or(false);
+                let _ = app.emit("autostart-changed", enabled);
             }
         })
         .setup(|app| {
+            // 开机自启时最小化到托盘（--minimized 参数由注册表/autostart 设置）
+            if std::env::args().any(|a| a == "--minimized") {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.hide().ok();
+                }
+            }
+
             // Initialize Python sidecar
             let sidecar = SidecarManager::new(app.handle().clone())?;
             app.manage(sidecar);
@@ -409,11 +456,15 @@ pub fn run() {
                 .build(app)?;
             let show = MenuItemBuilder::with_id("show", "显示窗口")
                 .build(app)?;
+            let autostart_item = CheckMenuItemBuilder::with_id("autostart", "开机自启")
+                .checked(app.autolaunch().is_enabled().unwrap_or(false))
+                .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出")
                 .build(app)?;
             let menu = MenuBuilder::new(app)
                 .item(&cast_url_item)
                 .item(&show)
+                .item(&autostart_item)
                 .item(&quit)
                 .build()?;
 
@@ -483,6 +534,7 @@ pub fn run() {
             let tray_id = tray.id().clone();
             tauri::async_runtime::spawn(async move {
                 let mut last_url = String::new();
+                let mut last_autostart = app_handle.autolaunch().is_enabled().unwrap_or(false);
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -500,9 +552,14 @@ pub fn run() {
                         Err(_) => String::new(),
                     };
 
-                    // Only update menu when URL changed
-                    if new_url != last_url {
+                    let cur_autostart = app_handle.autolaunch().is_enabled().unwrap_or(false);
+                    let url_changed = new_url != last_url;
+                    let autostart_changed = cur_autostart != last_autostart;
+
+                    // Only update menu when something changed
+                    if url_changed || autostart_changed {
                         last_url = new_url.clone();
+                        last_autostart = cur_autostart;
                         // Update state for clipboard copy
                         if let Some(state) = app_handle.try_state::<CastUrlState>() {
                             *state.url.lock().unwrap() = new_url.clone();
@@ -519,12 +576,25 @@ pub fn run() {
                             let show_item = MenuItemBuilder::with_id("show", "显示窗口")
                                 .build(&app_handle)
                                 .unwrap();
+                            let autostart_item = CheckMenuItemBuilder::with_id(
+                                "autostart",
+                                "开机自启",
+                            )
+                            .checked(
+                                app_handle
+                                    .autolaunch()
+                                    .is_enabled()
+                                    .unwrap_or(false),
+                            )
+                            .build(&app_handle)
+                            .unwrap();
                             let quit_item = MenuItemBuilder::with_id("quit", "退出")
                                 .build(&app_handle)
                                 .unwrap();
                             let new_menu = MenuBuilder::new(&app_handle)
                                 .item(&new_item)
                                 .item(&show_item)
+                                .item(&autostart_item)
                                 .item(&quit_item)
                                 .build()
                                 .unwrap();
@@ -569,6 +639,8 @@ pub fn run() {
             save_guard_settings,
             check_mpv,
             set_mpv_path,
+            get_autostart,
+            set_autostart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

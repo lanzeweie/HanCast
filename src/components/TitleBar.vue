@@ -39,12 +39,12 @@ function goToSettings() {
           <circle cx="12" cy="12" r="3" />
         </svg>
       </button>
-      <button class="title-bar__btn" @click="minimizeWindow" :title="'Minimize'">
+      <button class="title-bar__btn" @click="minimizeWindow" :title="t('controller.minimize')">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M5 12h14" />
         </svg>
       </button>
-      <button class="title-bar__btn title-bar__btn--close" @click="closeWindow" :title="'Close'">
+      <button class="title-bar__btn title-bar__btn--close" @click="closeWindow" :title="t('controller.close')">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12" />
         </svg>

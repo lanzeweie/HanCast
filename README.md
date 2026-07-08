@@ -17,19 +17,26 @@
 
 ---
 
-## 功能特性
+## 核心亮点
 
-### 发送投屏（Cast Out）
+### 多源投屏，一键直达
 
-将电脑上的媒体内容投屏到局域网内的 DLNA 设备（电视、音箱、投影仪等）：
+支持多种媒体源，拖拽或粘贴即可投屏到电视、投影仪等 DLNA 设备：
 
-- **文件投屏** — 拖拽本地媒体文件到窗口，自动解析并投屏
-- **链接投屏** — 粘贴媒体 URL（支持 HTTP/HTTPS 直链），直接投屏
-- **剪贴板粘贴** — 从剪贴板粘贴媒体链接，一键投屏
-- **播放控制** — 暂停 / 恢复 / 进度跳转 / 音量调节 / 静音
+| 媒体源 | 说明 | 示例 |
+|--------|------|------|
+| **本地文件** | 拖拽视频/音频/图片到窗口，自动解析投屏 | `.mp4` `.mp3` `.jpg` |
+| **网络链接** | 粘贴 HTTP/HTTPS 直链，直接投屏 | `https://example.com/video.mp4` |
+| **B站视频** | 粘贴 B站链接，自动解析取流，无需会员 | `bilibili.com/video/BV...` |
+| **剪贴板** | 从剪贴板粘贴媒体链接，一键投屏 | 复制链接后直接粘贴 |
+
+### 投屏控制
+
+- **播放控制** — 暂停 / 恢复 / 进度跳转 / 音量调节 / 隔音
 - **多格式支持** — 视频、音频、图片均可投屏
+- **多设备** — 支持同时投屏到多个设备（开发中）
 
-### 接收投屏（Cast In）
+### 接收投屏
 
 电脑作为 DLNA Renderer，接收手机/平板的投屏：
 
@@ -37,15 +44,20 @@
 - **MPV 播放** — 底层使用 MPV 播放器，支持几乎所有媒体格式
 - **自动启动** — 接收到投屏请求时自动启动 MPV 播放
 
-### 设备管理
+---
+
+## 设备管理
 
 - **自动发现** — 启动后自动扫描局域网 DLNA 设备（SSDP 协议）
 - **手动刷新** — 支持手动刷新设备列表
 - **设备重命名** — 为设备设置自定义名称（本地保存）
 - **默认设备** — 设置默认投屏设备，下次启动自动选中
 - **设备移除** — 从列表中移除不需要的设备
+- **投屏确认** — 未知设备投屏时弹窗确认，支持信任/黑名单管理
 
-### 界面与体验
+---
+
+## 界面与体验
 
 - **自定义标题栏** — 无边框窗口 + 自定义最小化/关闭按钮
 - **亮色/暗色主题** — 跟随系统主题自动切换
@@ -176,61 +188,12 @@ HanCast/
 │       │   └── mpv.py          # MPV 渲染器（IPC 控制）
 │       ├── media/
 │       │   ├── parser.py       # 媒体文件/URL 解析
-│       │   └── server.py       # 本地文件 HTTP 服务
+│       │   ├── bili_resolver.py # B站视频解析
+│       │   └── server.py       # 本地文件 HTTP 服务 + 代理
 │       └── xml/                # UPnP 描述文件
 │
 └── docs/                       # 设计文档
 ```
-
----
-
-## 开发工具与技能
-
-本项目使用以下 AI 辅助开发工具与方法论：
-
-### BMad Method
-
-[BMad Method](https://github.com/bmadcode/BMad-Method) — 结构化产品开发方法论，覆盖从需求分析到实现的全流程。
-
-| 阶段 | 技能 | 说明 |
-|------|------|------|
-| 分析 | `bmad-brainstorming` | 头脑风暴，多角度创意发散 |
-| 分析 | `bmad-forge-idea` | 想法拷问 — 通过角色扮演压力测试，直到想法成熟或廉价失败 |
-| 分析 | `bmad-prfaq` | Working Backwards PRFAQ 挑战，从客户视角验证产品概念 |
-| 分析 | `bmad-product-brief` | 产品简报创建与验证 |
-| 分析 | `bmad-document-project` | 为 AI 上下文生成项目文档 |
-| 规划 | `bmad-prd` | 产品需求文档（PRD）创建、编辑与验证 |
-| 规划 | `bmad-ux` | UX 设计规范与模式规划 |
-| 方案 | `bmad-architecture` | 技术架构设计 — 不变量的精简脊柱 |
-| 方案 | `bmad-create-epics-and-stories` | 需求拆分为 Epic 和用户故事 |
-| 实现 | `bmad-dev-story` | 按故事规范执行代码实现 |
-| 实现 | `bmad-quick-dev` | 快速实现任意需求、Bug 修复或重构 |
-| 实现 | `bmad-code-review` | 对抗性代码审查（盲猎人 + 边界猎人 + 验收审计） |
-| 审查 | `bmad-review-adversarial-general` | 愤世嫉俗式审查，产出问题报告 |
-| 审查 | `bmad-review-edge-case-hunter` | 边界条件穷举分析 |
-
-### 知识图谱
-
-[Understand Anything](https://github.com/understand-anything/understand-anything) — 自动生成项目代码知识图谱，可视化文件依赖、函数调用、模块层级关系。
-
-```bash
-# 生成知识图谱
-/understand-anything:understand
-
-# 启动可视化仪表板
-/understand-anything:understand-dashboard
-```
-
-### Claude Code
-
-[Anthropic Claude Code](https://claude.ai/code) — AI 编程助手，提供代码生成、审查、重构等能力。本项目的所有 AI 辅助开发均通过 Claude Code 进行。
-
-**使用的模型：**
-
-| 模型 | 用途 |
-|------|------|
-| `mimo-v2.5` | 主力模型 — 全场景开发 |
-| `mimo-v2.5-pro` | 备用模型 — 复杂任务、深度推理 |
 
 ---
 

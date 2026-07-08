@@ -22,10 +22,10 @@ from typing import Dict, Tuple
 logger = logging.getLogger("macast.media.server")
 
 
-# 代理允许的域名白名单
-PROXY_ALLOWED_HOSTS = {
+# 代理允许的域名后缀白名单（匹配 *.suffix）
+PROXY_ALLOWED_SUFFIXES = {
     "bilivideo.com", "hdslb.com", "akamaized.net",
-    "bilibili.com", "biliapi.net",
+    "bilibili.com", "biliapi.net", "mountaintoys.cn",
 }
 
 
@@ -125,15 +125,20 @@ class MediaHandler(BaseHTTPRequestHandler):
 
     def _handle_proxy(self):
         """处理代理请求: 从 proxy_targets 中查找远程 URL 并转发"""
-        # 从 proxy_targets 中查找
-        remote_url = self.proxy_targets.get(self.path)
+        # 从 proxy_targets 中查找（忽略 query string）
+        path = self.path.split("?")[0]
+        remote_url = self.proxy_targets.get(path)
         if not remote_url:
+            logger.warning(f"Proxy target not found: {self.path}")
             self.send_error(404, "Proxy target not found")
             return
 
+        logger.info(f"Proxy request: {self.path} → {remote_url[:100]}...")
+
         # 安全校验: 只允许白名单域名
         host = urlparse(remote_url).hostname or ""
-        if not any(host == h or host.endswith("." + h) for h in PROXY_ALLOWED_HOSTS):
+        if not any(host == h or host.endswith("." + h) for h in PROXY_ALLOWED_SUFFIXES):
+            logger.warning(f"Blocked forbidden domain: {host}")
             self.send_error(403, "Forbidden domain")
             return
 
@@ -155,6 +160,10 @@ class MediaHandler(BaseHTTPRequestHandler):
             self.send_error(502, f"Proxy Error: {e}")
             return
 
+        logger.info(f"Proxy response: status={resp.status_code}, "
+                     f"content-type={resp.headers.get('Content-Type')}, "
+                     f"content-length={resp.headers.get('Content-Length')}")
+
         # 构建响应头
         resp_headers = {
             "Content-Type": resp.headers.get("Content-Type", "video/mp4"),
@@ -172,14 +181,17 @@ class MediaHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         # 流式转发响应体
+        total_bytes = 0
         try:
             for chunk in resp.iter_content(chunk_size=8192):
                 if chunk:
                     self.wfile.write(chunk)
+                    total_bytes += len(chunk)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass  # 客户端断开连接，正常
         finally:
             resp.close()
+            logger.info(f"Proxy done: {total_bytes} bytes forwarded")
 
     def log_message(self, format, *args):
         logger.debug(format % args)

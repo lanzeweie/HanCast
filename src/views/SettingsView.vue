@@ -208,7 +208,7 @@ async function onCheckUpdate() {
         </div>
 
         <div class="settings__item">
-          <a class="settings__link" href="https://github.com/xfangfang/Macast" target="_blank">
+          <a class="settings__link" href="https://github.com/lanzeweie/HanCast?tab=GPL-3.0-1-ov-file#" target="_blank">
             {{ t('settings.license') }}
           </a>
         </div>

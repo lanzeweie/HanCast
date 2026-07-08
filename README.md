@@ -27,7 +27,7 @@
 |--------|------|------|
 | **本地文件** | 拖拽视频/音频/图片到窗口，自动解析投屏 | `.mp4` `.mp3` `.jpg` |
 | **网络链接** | 粘贴 HTTP/HTTPS 直链，直接投屏 | `https://example.com/video.mp4` |
-| **B站视频** | 粘贴 B站链接，自动解析取流，无需会员 | `bilibili.com/video/BV...` |
+| **B站视频** | 粘贴 B站链接，自动解析取流 | `bilibili.com/video/BV...` |
 | **剪贴板** | 从剪贴板粘贴媒体链接，一键投屏 | 复制链接后直接粘贴 |
 
 ### 投屏控制
@@ -221,8 +221,3 @@ HanCast/
 - [xfangfang/Macast](https://github.com/xfangfang/Macast) — 原始项目
 - [Tauri](https://tauri.app/) — 跨平台桌面应用框架
 - [akFace/mpv.config](https://github.com/akFace/mpv.config) — MPV 主题皮肤（modernz）
-
-还差什么
-1.更新
-2.MPV
-3.自启

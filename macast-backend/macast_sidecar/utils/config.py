@@ -162,3 +162,22 @@ class Config:
         """保存设备确认配置"""
         self.settings['device_guard'] = guard_cfg
         self.save()
+
+    # ── 更新忽略版本 ──
+
+    @property
+    def ignored_update_version(self) -> Optional[str]:
+        """用户选择'此版本不再提示'的版本号"""
+        return self.settings.get('ignored_update_version')
+
+    def ignore_update_version(self, version: str):
+        """记录用户忽略的版本号"""
+        self.settings['ignored_update_version'] = version
+        self.save()
+        logger.info(f"Ignored update version: {version}")
+
+    def clear_ignored_update_version(self):
+        """清除忽略版本（如用户手动检查更新时）"""
+        if 'ignored_update_version' in self.settings:
+            del self.settings['ignored_update_version']
+            self.save()

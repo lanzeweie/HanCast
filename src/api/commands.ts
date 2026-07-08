@@ -170,6 +170,17 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       return true as T
     case 'save_guard_settings':
       return {} as T
+    case 'check_update':
+      return {
+        has_update: false,
+        current: '2.0.0',
+        latest: '2.0.0',
+        url: '',
+        body: '',
+        source: '',
+      } as T
+    case 'ignore_update_version':
+      return true as T
     default:
       return {} as T
   }
@@ -340,4 +351,25 @@ export async function saveGuardSettings(settings: {
 }): Promise<void> {
   const invoke = await initInvoke()
   await invoke('save_guard_settings', { settings })
+}
+
+// ── Update Check ──
+
+export interface UpdateInfo {
+  has_update: boolean
+  current: string
+  latest: string
+  url: string
+  body: string
+  source: string
+}
+
+export async function checkUpdate(currentVersion: string, force?: boolean): Promise<UpdateInfo> {
+  const invoke = await initInvoke()
+  return invoke<UpdateInfo>('check_update', { currentVersion, force })
+}
+
+export async function ignoreUpdateVersion(version: string): Promise<boolean> {
+  const invoke = await initInvoke()
+  return invoke<boolean>('ignore_update_version', { version })
 }

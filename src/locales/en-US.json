@@ -95,5 +95,12 @@
   "guard.moveToTrusted": "Move to Trusted",
   "guard.moveToBlacklist": "Move to Blacklist",
   "guard.castCount": "Casted {n} times",
-  "guard.firstTrusted": "First trusted: {date}"
+  "guard.firstTrusted": "First trusted: {date}",
+  "update.title": "Update Available",
+  "update.changelog": "What's New",
+  "update.ignoreThisVersion": "Ignore This Version",
+  "update.download": "Download",
+  "update.checking": "Checking...",
+  "update.latestAlready": "Already up to date ✓",
+  "update.checkFailed": "Check failed, please try again later"
 }

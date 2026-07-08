@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import logging
+import threading
 from typing import Any, Dict, Optional
 from .ssdp import SSDPService
 from .protocol.dlna import DLNAProtocol
@@ -20,6 +21,8 @@ from .types.cast import CastState
 from .types.session import DeviceCastSession
 from .utils.config import Config
 from .security.guard import DeviceGuard
+
+import requests
 
 logger = logging.getLogger("macast.commands")
 
@@ -135,6 +138,10 @@ class CommandHandler:
             # 设置
             "get_settings": self._get_settings,
             "save_settings": self._save_settings,
+
+            # 更新检查
+            "check_update": self._check_update,
+            "ignore_update_version": self._ignore_update_version,
 
             # 设备投屏确认
             "respond_cast_confirm": self._respond_cast_confirm,
@@ -522,6 +529,111 @@ class CommandHandler:
 
         self.config.update(settings)
         self.config.save()
+
+    # ── 更新检查 ──
+
+    @staticmethod
+    def _parse_version(v: str) -> tuple:
+        """将版本号字符串解析为可比较的元组，忽略非数字前缀"""
+        import re
+        nums = re.findall(r'\d+', v)
+        return tuple(int(n) for n in nums) if nums else (0,)
+
+    def _check_update(self, params: dict) -> dict:
+        """
+        检查是否有新版本。
+        params:
+            current_version: str  当前版本号 (来自 tauri.conf.json)
+            sources: list[str]    检查源，可选 "github" / "gitee"，默认 ["github"]
+            force: bool           是否忽略用户设置的"此版本不提示"
+        返回:
+            { has_update, current, latest, url, body, source }
+        """
+        current_version = params.get("current_version", "0.0.0")
+        sources = params.get("sources", ["github"])
+        force = params.get("force", False)
+        ignored_version = self.config.ignored_update_version
+
+        # GitHub 配置
+        github_repo = "lanzeweie/HanCast"
+        github_api = f"https://api.github.com/repos/{github_repo}/releases/latest"
+
+        # Gitee 配置（预留）
+        gitee_repo = "lanzeweie/HanCast"
+        gitee_api = f"https://gitee.com/api/v5/repos/{gitee_repo}/releases/latest"
+
+        for source in sources:
+            try:
+                if source == "github":
+                    result = self._fetch_github_release(github_api, current_version)
+                elif source == "gitee":
+                    result = self._fetch_github_release(gitee_api, current_version, is_gitee=True)
+                else:
+                    continue
+
+                if result:
+                    # 检查是否被用户忽略（除非 force=True）
+                    if not force and ignored_version and result["latest"] == ignored_version:
+                        logger.info(f"Update {result['latest']} ignored by user")
+                        return {
+                            "has_update": False,
+                            "current": current_version,
+                            "latest": result["latest"],
+                            "url": "",
+                            "body": "",
+                            "source": source,
+                        }
+                    result["source"] = source
+                    return result
+            except Exception as e:
+                logger.warning(f"Update check failed ({source}): {e}")
+                continue
+
+        # 所有源都失败或无更新
+        return {
+            "has_update": False,
+            "current": current_version,
+            "latest": current_version,
+            "url": "",
+            "body": "",
+            "source": "",
+            "error": "无法连接更新服务器",
+        }
+
+    def _fetch_github_release(self, api_url: str, current_version: str, is_gitee: bool = False) -> Optional[dict]:
+        """从 GitHub/Gitee releases API 获取最新版本"""
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        resp = requests.get(api_url, headers=headers, timeout=2)
+        resp.raise_for_status()
+        data = resp.json()
+
+        tag = data.get("tag_name", "")
+        latest_version = tag.lstrip("vV")
+        html_url = data.get("html_url", "")
+        body = data.get("body", "") or ""
+
+        # 比较版本
+        current_tuple = self._parse_version(current_version)
+        latest_tuple = self._parse_version(latest_version)
+
+        if latest_tuple > current_tuple:
+            return {
+                "has_update": True,
+                "current": current_version,
+                "latest": latest_version,
+                "url": html_url,
+                "body": body[:500],  # 截断过长的 changelog
+            }
+
+        return None
+
+    def _ignore_update_version(self, params: dict) -> bool:
+        """用户选择'此版本不再提示'，记录到配置"""
+        version = params.get("version", "")
+        if not version:
+            return False
+        self.config.ignore_update_version(version)
+        return True
 
     # ── 设备投屏确认 (Device Guard) ──
 

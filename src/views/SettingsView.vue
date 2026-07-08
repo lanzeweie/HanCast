@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
 import { useGuardStore } from '@/stores/guard'
+import { useUpdateStore } from '@/stores/update'
 import GuardDeviceList from '@/components/GuardDeviceList.vue'
 
 const router = useRouter()
@@ -12,6 +13,7 @@ const { t, locale } = useI18n()
 const settingsStore = useSettingsStore()
 const themeStore = useThemeStore()
 const guardStore = useGuardStore()
+const updateStore = useUpdateStore()
 
 const friendlyName = ref('')
 const showGuardDevices = ref(false)
@@ -51,6 +53,22 @@ function toggleGuardDevices() {
   showGuardDevices.value = !showGuardDevices.value
   if (showGuardDevices.value) {
     guardStore.fetchDevices()
+  }
+}
+
+const checkUpdateStatus = ref<'idle' | 'checking' | 'no_update' | 'error'>('idle')
+
+async function onCheckUpdate() {
+  checkUpdateStatus.value = 'checking'
+  const result = await updateStore.check(settingsStore.settings.version, true)
+  if (result?.has_update) {
+    checkUpdateStatus.value = 'idle' // modal will show
+  } else if (result && !result.has_update) {
+    checkUpdateStatus.value = 'no_update'
+    setTimeout(() => { checkUpdateStatus.value = 'idle' }, 2000)
+  } else {
+    checkUpdateStatus.value = 'error'
+    setTimeout(() => { checkUpdateStatus.value = 'idle' }, 2000)
   }
 }
 </script>
@@ -177,7 +195,16 @@ function toggleGuardDevices() {
         </div>
 
         <div class="settings__item">
-          <button class="settings__link">{{ t('settings.checkUpdate') }}</button>
+          <button
+            class="settings__link"
+            :disabled="checkUpdateStatus === 'checking'"
+            @click="onCheckUpdate"
+          >
+            <span v-if="checkUpdateStatus === 'checking'">{{ t('update.checking') }}</span>
+            <span v-else-if="checkUpdateStatus === 'no_update'" class="settings__check-result">{{ t('update.latestAlready') }}</span>
+            <span v-else-if="checkUpdateStatus === 'error'" class="settings__check-result settings__check-result--error">{{ t('update.checkFailed') }}</span>
+            <span v-else>{{ t('settings.checkUpdate') }}</span>
+          </button>
         </div>
 
         <div class="settings__item">
@@ -323,6 +350,21 @@ function toggleGuardDevices() {
 
 .settings__link:hover {
   text-decoration: underline;
+}
+
+.settings__link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.settings__check-result {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.settings__check-result--error {
+  color: #EF4444;
 }
 
 /* ── Toggle switch ── */

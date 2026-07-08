@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State,
+    Emitter, Manager, State,
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -245,6 +245,37 @@ async fn save_settings(
     Ok(())
 }
 
+// ── Update Check ──
+
+#[tauri::command]
+async fn check_update(
+    sidecar: State<'_, SidecarManager>,
+    current_version: String,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    sidecar
+        .send_command(
+            "check_update",
+            serde_json::json!({
+                "current_version": current_version,
+                "sources": ["github", "gitee"],
+                "force": force.unwrap_or(false),
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn ignore_update_version(
+    sidecar: State<'_, SidecarManager>,
+    version: String,
+) -> Result<bool, String> {
+    let result = sidecar
+        .send_command("ignore_update_version", serde_json::json!({"version": version}))
+        .await?;
+    Ok(result.as_bool().unwrap_or(false))
+}
+
 // ── Device Guard (投屏确认) ──
 
 #[tauri::command]
@@ -394,6 +425,42 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Background task: startup update check (non-blocking, 2s timeout)
+            let app_handle_update = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // 等待 sidecar 就绪
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+                let current_version = app_handle_update
+                    .config()
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "0.0.0".to_string());
+
+                let sidecar = app_handle_update.state::<SidecarManager>();
+                match sidecar
+                    .send_command(
+                        "check_update",
+                        serde_json::json!({"current_version": current_version, "sources": ["github"]}),
+                    )
+                    .await
+                {
+                    Ok(result) => {
+                        if result.get("has_update").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            let _ = app_handle_update.emit("update-available", &result);
+                            eprintln!(
+                                "[Update] New version available: {} → {}",
+                                current_version,
+                                result.get("latest").and_then(|v| v.as_str()).unwrap_or("?")
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Update] Startup check failed: {e}");
+                    }
+                }
+            });
+
             // Background task: poll get_cast_url every second and update tray menu
             let app_handle = app.handle().clone();
             let tray_id = tray.id().clone();
@@ -475,6 +542,8 @@ pub fn run() {
             set_mute,
             get_settings,
             save_settings,
+            check_update,
+            ignore_update_version,
             respond_cast_confirm,
             get_guard_devices,
             remove_guard_device,

@@ -39,7 +39,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
-    logger.info("Macast Sidecar started")
+    logger.info("HanCast Sidecar started")
 
     for line in sys.stdin:
         line = line.strip()
@@ -89,7 +89,7 @@ def main():
 
         print(json.dumps(response, ensure_ascii=False), flush=True)
 
-    logger.info("Macast Sidecar exited")
+    logger.info("HanCast Sidecar exited")
 
 
 if __name__ == "__main__":

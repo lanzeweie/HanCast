@@ -1,5 +1,5 @@
 """
-DLNA 协议 - 复用自 Macast-main/macast/protocol.py
+DLNA 协议
 
 改动点:
 - 移除 CherryPy 依赖
@@ -66,7 +66,7 @@ class ObserveClient:
         headers = {"NT": "upnp:event",
                    "NTS": "upnp:propchange",
                    "CONTENT-TYPE": 'text/xml; charset="utf-8"',
-                   "SERVER": "Windows/10 UPnP/1.0 Macast/2.0",
+                   "SERVER": "Windows/10 UPnP/1.0 HanCast/2.0",
                    "SID": self.sid,
                    "SEQ": self.seq,
                    "TIMEOUT": f"Second-{self.timeout}"
@@ -155,7 +155,6 @@ class DLNAProtocol:
         """设置渲染器引用
 
         SOAP 处理方法需要通过此引用调用 MPV 播放器。
-        原版 Macast 通过 cherrypy.engine.publish('get_renderer') 获取渲染器，
         新版改为直接引用。
         """
         self._renderer = renderer
@@ -668,7 +667,7 @@ class DLNAProtocol:
         uri = data['CurrentURI'].value
         logger.info(f"SetAVTransportURI: {uri}")
         self.set_state_url(uri)
-        title = "Macast"
+        title = "HanCast"
         try:
             meta = etree.fromstring(data['CurrentURIMetaData'].value.encode())
             title_xml = meta.find('.//{{{}}}title'.format(meta.nsmap['dc']))

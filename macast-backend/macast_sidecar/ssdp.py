@@ -1,5 +1,5 @@
 """
-SSDP 服务 — 精确复刻 Macast-main/macast/ssdp.py
+SSDP 服务
 
 关键行为:
 - 注册 6 个 SSDP 条目 (rootdevice, uuid, device, 3个service)
@@ -28,7 +28,7 @@ SERVER_ID = 'SSDP Server'
 
 
 class Sock:
-    """Per-interface multicast socket — 精确复刻原始 Macast 的 Sock 类"""
+    """Per-interface multicast socket"""
 
     def __init__(self, ip):
         self.ip = ip
@@ -65,9 +65,9 @@ class Sock:
 
 
 class SSDPService:
-    """SSDP 服务 — 精确复刻原始 Macast 的 SSDPServer"""
+    """SSDP 服务"""
 
-    def __init__(self, friendly_name: str = "Macast", port: int = 8080,
+    def __init__(self, friendly_name: str = "HanCast", port: int = 8080,
                  usn: str = None):
         self._devices: Dict[str, Device] = {}
         self._lock = threading.Lock()
@@ -78,7 +78,7 @@ class SSDPService:
         self._port = port
         self._usn = usn or f"uuid:{self._generate_uuid()}"
         self._ip = self._get_local_ip()
-        self._server_info = 'Windows/10 UPnP/1.0 Macast/2.0'
+        self._server_info = 'Windows/10 UPnP/1.0 HanCast/2.0'
 
         # SSDP 状态
         self._known: Dict[str, dict] = {}
@@ -112,8 +112,7 @@ class SSDPService:
     def _get_all_interfaces(self) -> List[tuple]:
         """获取所有可用网络接口的 (ip, netmask) 列表
 
-        原版 Macast 使用 netifaces 枚举所有接口。
-        这里使用纯 socket 实现，确保在所有接口上注册 SSDP。
+        使用纯 socket 实现，确保在所有接口上注册 SSDP。
         Windows 上还需要包含常见的 ICS 热点网段。
         """
         interfaces = []
@@ -217,7 +216,7 @@ class SSDPService:
         self._do_byebye()
 
     def _register(self):
-        """注册 6 个 SSDP 条目 — 精确复刻原始 Macast 的 SSDPPlugin.build_device_info"""
+        """注册 6 个 SSDP 条目"""
         location = 'http://{{}}:{}/description.xml'.format(self._port)
         usn = self._usn  # e.g. "uuid:82b37828-..."
 
@@ -246,7 +245,7 @@ class SSDPService:
         logger.info(f"Registered as DLNA Renderer: {self._usn}")
 
     def _run_ssdp(self):
-        """SSDP 主循环 — 精确复刻原始 Macast 的 SSDPServer.run"""
+        """SSDP 主循环"""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
 
@@ -315,7 +314,7 @@ class SSDPService:
         self.sock = None
 
     def _datagram_received(self, data, host_port):
-        """处理收到的 SSDP 数据报 — 精确复刻原始 Macast"""
+        """处理收到的 SSDP 数据报"""
         (host, port) = host_port
 
         try:
@@ -345,7 +344,7 @@ class SSDPService:
             self._handle_notify(headers, (host, port))
 
     def _discovery_request(self, headers, host_port):
-        """处理 M-SEARCH 请求 — 精确复刻原始 Macast"""
+        """处理 M-SEARCH 请求"""
         (host, port) = host_port
         st = headers.get('st', '')
 
@@ -369,7 +368,7 @@ class SSDPService:
 
                     destination = (host, port)
 
-                    # 通过匹配子网的接口发送响应（与原始 Macast 一致）
+                    # 通过匹配子网的接口发送响应
                     for ip, mask in self.ip_list:
                         if self._get_subnet_ip(ip, mask) == self._get_subnet_ip(host, mask):
                             try:
@@ -443,7 +442,7 @@ class SSDPService:
             logger.debug(f"Failed to fetch device from NOTIFY: {e}")
 
     def _notify_loop(self):
-        """每 3 秒发送 NOTIFY 广播 — 与原始 Macast 的 Monitor 间隔一致"""
+        """每 3 秒发送 NOTIFY 广播"""
         while self._running:
             try:
                 self._do_notify()
@@ -455,7 +454,7 @@ class SSDPService:
                 logger.error(f"NOTIFY error: {e}")
 
     def _do_notify(self):
-        """发送 NOTIFY 广播 — 精确复刻原始 Macast 的 do_notify"""
+        """发送 NOTIFY 广播"""
         for usn in self._known:
             logger.debug('Sending alive notification for %s' % usn)
             if usn not in self._known:
@@ -484,7 +483,7 @@ class SSDPService:
                     "failure sending out alive notification: %r" % msg)
 
     def _do_byebye(self):
-        """发送 byebye — 精确复刻原始 Macast 的 do_byebye"""
+        """发送 byebye"""
         for usn in self._known:
             logger.debug('Sending byebye notification for %s' % usn)
             resp = [

@@ -1,5 +1,5 @@
 """
-MPV 渲染器 - 复用自 Macast-main/macast_renderer/mpv.py
+MPV 渲染器
 
 改动点:
 - 移除 GUI 回调
@@ -45,12 +45,12 @@ class MPVRenderer(Renderer):
         super().__init__()
         mpv_rand = random.randint(0, 9999)
         if os.name == 'nt':
-            self.mpv_sock = f"\\\\.\\pipe\\macast_mpvsocket{mpv_rand}"
+            self.mpv_sock = f"\\\\.\\pipe\\hancast_mpvsocket{mpv_rand}"
         else:
-            self.mpv_sock = f'/tmp/macast_mpvsocket{mpv_rand}'
+            self.mpv_sock = f'/tmp/hancast_mpvsocket{mpv_rand}'
         self.path = path
         self.proc = None
-        self.title = "Macast"
+        self.title = "HanCast"
         self.mpv_thread = None
         self.ipc_thread = None
         self.ipc_sock = None

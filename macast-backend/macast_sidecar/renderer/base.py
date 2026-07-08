@@ -1,5 +1,5 @@
 """
-渲染器基类 - 复用自 Macast-main/macast/renderer.py
+渲染器基类
 
 改动点:
 - 移除 cherrypy 依赖

@@ -1,5 +1,5 @@
 """
-配置管理 - 重构自 Macast-main/macast/utils.py
+配置管理
 
 改动点:
 - 移除 cherrypy 依赖
@@ -19,11 +19,11 @@ logger = logging.getLogger("macast.config")
 
 # 默认配置目录
 if sys.platform == 'win32':
-    SETTING_DIR = os.path.join(os.environ.get('APPDATA', ''), 'Macast')
+    SETTING_DIR = os.path.join(os.environ.get('APPDATA', ''), 'HanCast')
 elif sys.platform == 'darwin':
-    SETTING_DIR = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'Macast')
+    SETTING_DIR = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'HanCast')
 else:
-    SETTING_DIR = os.path.join(os.path.expanduser('~'), '.config', 'macast')
+    SETTING_DIR = os.path.join(os.path.expanduser('~'), '.config', 'hancast')
 
 
 class Config:

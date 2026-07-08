@@ -20,14 +20,14 @@ class DLNAHandler(BaseHTTPRequestHandler):
     """
 
     # 类变量，由外部设置
-    friendly_name = "Macast"
+    friendly_name = "HanCast"
     usn = "uuid:test"
     ip = "127.0.0.1"
     port = 8080
     xml_dir = ""
     command_handler = None
     # 服务器信息，格式: {OS}/{OSVersion} UPnP/1.0 {App}/{AppVersion}
-    server_info = "Windows/10 UPnP/1.0 Macast/2.0"
+    server_info = "Windows/10 UPnP/1.0 HanCast/2.0"
 
     def do_GET(self):
         """处理 GET 请求"""
@@ -154,11 +154,11 @@ class DLNAHandler(BaseHTTPRequestHandler):
             replacements = {
                 '{uuid}': self.usn,
                 '{friendly_name}': self.friendly_name,
-                '{manufacturer}': 'Macast',
-                '{manufacturer_url}': 'https://github.com/xfangfang/Macast',
+                '{manufacturer}': 'HanCast',
+                '{manufacturer_url}': 'https://github.com/your-username/HanCast',
                 '{model_description}': 'AVTransport Media Renderer',
-                '{model_name}': 'Macast',
-                '{model_url}': 'https://xfangfang.github.io/Macast',
+                '{model_name}': 'HanCast',
+                '{model_url}': 'https://github.com/your-username/HanCast',
                 '{model_number}': '2.0.0',
                 '{serial_num}': '1024',
                 '{header_extra}': '',
@@ -223,7 +223,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Macast 2.0</title>
+            <title>HanCast 2.0</title>
             <style>
                 body { font-family: sans-serif; text-align: center; padding: 50px; }
                 h1 { color: #333; }
@@ -231,7 +231,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
             </style>
         </head>
         <body>
-            <h1>Macast 2.0</h1>
+            <h1>HanCast 2.0</h1>
             <p>DLNA Media Renderer</p>
             <p>Device: {name}</p>
             <p><a href="/description.xml">Device Description (XML)</a></p>

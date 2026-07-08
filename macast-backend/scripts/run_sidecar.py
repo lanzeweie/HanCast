@@ -1,5 +1,5 @@
 """
-Macast Sidecar 持续运行脚本
+HanCast Sidecar 持续运行脚本
 用于测试手机投屏到本机
 """
 
@@ -15,7 +15,7 @@ logger = setup_logger("macast", level=logging.INFO)
 
 def main():
     print("=" * 60)
-    print("Macast 2.0 Sidecar - 持续运行模式")
+    print("HanCast 2.0 Sidecar - 持续运行模式")
     print("=" * 60)
     print()
     print("功能:")
@@ -26,7 +26,7 @@ def main():
     print("测试投屏:")
     print("  1. 确保手机和电脑在同一 WiFi 网络")
     print("  2. 在手机上打开视频 App (如 B站、爱奇艺)")
-    print("  3. 点击投屏按钮，选择 'Macast(xxxx)' 设备")
+    print("  3. 点击投屏按钮，选择 'HanCast(xxxx)' 设备")
     print()
     print("按 Ctrl+C 停止")
     print("=" * 60)

@@ -14,13 +14,13 @@ from typing import Optional
 
 # 默认日志目录
 if sys.platform == 'win32':
-    LOG_DIR = os.path.join(os.environ.get('APPDATA', ''), 'Macast', 'logs')
+    LOG_DIR = os.path.join(os.environ.get('APPDATA', ''), 'HanCast', 'logs')
 elif sys.platform == 'darwin':
-    LOG_DIR = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'Macast', 'logs')
+    LOG_DIR = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'HanCast', 'logs')
 else:
-    LOG_DIR = os.path.join(os.path.expanduser('~'), '.config', 'macast', 'logs')
+    LOG_DIR = os.path.join(os.path.expanduser('~'), '.config', 'hancast', 'logs')
 
-LOG_FILE = os.path.join(LOG_DIR, 'macast.log')
+LOG_FILE = os.path.join(LOG_DIR, 'hancast.log')
 
 _initialized = False
 
@@ -41,7 +41,7 @@ def setup_logger(
     Args:
         name:       根 logger 名称（默认 'macast'）
         level:      日志级别（默认 INFO）
-        log_file:   日志文件路径（默认 APPDATA/Macast/logs/macast.log）
+        log_file:   日志文件路径（默认 APPDATA/HanCast/logs/hancast.log）
         max_bytes:  单个日志文件最大字节数（默认 5MB）
         backup_count: 保留的旧日志文件数量（默认 3）
     """

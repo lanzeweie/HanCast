@@ -146,3 +146,19 @@ class Config:
     def is_device_hidden(self, device_udn: str) -> bool:
         """检查设备是否被隐藏"""
         return device_udn in self.hidden_devices
+
+    # ── 设备投屏确认 (Device Guard) ──
+
+    def get_device_guard_config(self) -> Dict:
+        """获取设备确认配置"""
+        return self.settings.get('device_guard', {
+            "enabled": True,
+            "confirm_timeout": 15,
+            "trusted_devices": [],
+            "blacklisted_devices": [],
+        })
+
+    def save_device_guard_config(self, guard_cfg: Dict):
+        """保存设备确认配置"""
+        self.settings['device_guard'] = guard_cfg
+        self.save()

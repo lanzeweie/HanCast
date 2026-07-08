@@ -136,6 +136,10 @@ class DLNAProtocol:
         # 回调函数 (必须在 init_state 之前初始化)
         self._on_state_change: Optional[Callable[[str, any], None]] = None
 
+        # 设备确认 (Device Guard)
+        self._device_guard = None
+        self._caller_ip: Optional[str] = None
+
         self.init_services()  # create services handle function from xml file
         self.init_state()  # set default value
 
@@ -157,6 +161,10 @@ class DLNAProtocol:
         # 将 protocol 自身设置到 renderer，使 renderer 状态变化能回调到 protocol
         if renderer:
             renderer.set_protocol(self)
+
+    def set_device_guard(self, guard):
+        """设置设备确认管理器"""
+        self._device_guard = guard
 
     def set_on_state_change(self, callback):
         """设置状态变化回调函数"""
@@ -501,8 +509,9 @@ class DLNAProtocol:
                 self.send_states_to_clients(state)
             time.sleep(1)
 
-    def call(self, rawbody):
+    def call(self, rawbody, caller_ip: str = None):
         """Processing requests from DLNA clients"""
+        self._caller_ip = caller_ip
         root = etree.fromstring(rawbody)[0][0]
         param = {}
         for node in root:
@@ -542,7 +551,25 @@ class DLNAProtocol:
                     param[arg.name] if arg.name in param else None)
                 if arg.name in param:
                     self.set_state(arg.state, param[arg.name])
-            res = getattr(self, method)(data)
+            try:
+                res = getattr(self, method)(data)
+            except Exception as e:
+                error_msg = str(e)
+                if "blacklisted" in error_msg or "rejected" in error_msg:
+                    logger.warning(f"Action {method} rejected: {error_msg}")
+                    ns = 'http://schemas.xmlsoap.org/soap/envelope/'
+                    ns_upnp = 'urn:schemas-upnp-org:control-1-0'
+                    root = etree.Element(etree.QName(ns, 'Envelope'), nsmap={'s': ns})
+                    body = etree.SubElement(root, etree.QName(ns, 'Body'), nsmap={'s': ns})
+                    fault = etree.SubElement(body, etree.QName(ns, 'Fault'))
+                    etree.SubElement(fault, 'faultcode').text = 's:Client'
+                    etree.SubElement(fault, 'faultstring').text = 'UPnPError'
+                    detail = etree.SubElement(fault, 'detail')
+                    upnp_error = etree.SubElement(detail, etree.QName(ns_upnp, 'UPnPError'))
+                    etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorCode')).text = '701'
+                    etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorDescription')).text = error_msg
+                    return etree.tostring(root, encoding="UTF-8", xml_declaration=False)
+                raise
         else:
             output = service_type.actions[action].output
             for arg in output:
@@ -621,6 +648,19 @@ class DLNAProtocol:
         return {}
 
     def AVTransport_SetAVTransportURI(self, data):
+        # ── 设备确认检查 ──
+        if self._device_guard and self._caller_ip:
+            status = self._device_guard.check(self._caller_ip)
+            if status == "blacklisted":
+                logger.warning(f"Blocked blacklisted device: {self._caller_ip}")
+                raise Exception("Device blacklisted")
+            elif status == "pending":
+                pending = self._device_guard.create_pending_request(self._caller_ip)
+                approved = self._device_guard.wait_for_confirm(pending)
+                if not approved:
+                    logger.warning(f"Cast rejected by user: {self._caller_ip}")
+                    raise Exception("Cast rejected by user")
+
         uri = data['CurrentURI'].value
         logger.info(f"SetAVTransportURI: {uri}")
         self.set_state_url(uri)

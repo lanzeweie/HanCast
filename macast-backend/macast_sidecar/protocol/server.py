@@ -126,7 +126,8 @@ class DLNAHandler(BaseHTTPRequestHandler):
 
             # 委托给 command_handler 的 protocol 处理 SOAP
             if self.command_handler and hasattr(self.command_handler, 'protocol'):
-                response = self.command_handler.protocol.call(body)
+                caller_ip = self.client_address[0]
+                response = self.command_handler.protocol.call(body, caller_ip=caller_ip)
             else:
                 logger.warning("No protocol handler available for SOAP")
                 self.send_error(503, "Service not ready")

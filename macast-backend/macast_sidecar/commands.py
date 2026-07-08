@@ -19,6 +19,7 @@ from .types.media import MediaInfo
 from .types.cast import CastState
 from .types.session import DeviceCastSession
 from .utils.config import Config
+from .security.guard import DeviceGuard
 
 logger = logging.getLogger("macast.commands")
 
@@ -100,6 +101,10 @@ class CommandHandler:
             usn=device_usn
         )
 
+        # 设备投屏确认 (Device Guard)
+        self.device_guard = DeviceGuard(self.config)
+        self.device_guard._on_confirm_request = self._on_guard_confirm_request
+
         # 注册命令
         self._commands: Dict[str, callable] = {
             # 设备管理
@@ -130,6 +135,14 @@ class CommandHandler:
             # 设置
             "get_settings": self._get_settings,
             "save_settings": self._save_settings,
+
+            # 设备投屏确认
+            "respond_cast_confirm": self._respond_cast_confirm,
+            "get_guard_devices": self._get_guard_devices,
+            "remove_guard_device": self._remove_guard_device,
+            "set_guard_policy": self._set_guard_policy,
+            "get_guard_settings": self._get_guard_settings,
+            "save_guard_settings": self._save_guard_settings,
         }
 
         # 设置回调
@@ -164,6 +177,9 @@ class CommandHandler:
         self.protocol.set_renderer(self.renderer)
         self.renderer.set_protocol(self.protocol)
 
+        # 注入 Device Guard → Protocol（拦截入站投屏）
+        self.protocol.set_device_guard(self.device_guard)
+
         # 启动 DLNA 协议事件线程 (发送状态变化通知给订阅的客户端)
         self.protocol.start()
 
@@ -191,6 +207,13 @@ class CommandHandler:
 
     def _on_device_found(self, device: Device):
         """设备发现回调"""
+        # 更新 DeviceGuard 的 SSDP 缓存（用于快速识别投屏设备）
+        self.device_guard.update_ssdp_cache(device.ip, {
+            "udn": device.id,
+            "friendly_name": device.name,
+            "model_name": device.model_name,
+        })
+
         # 发送事件到前端
         print(json.dumps({
             "event": "device_found",
@@ -499,3 +522,56 @@ class CommandHandler:
 
         self.config.update(settings)
         self.config.save()
+
+    # ── 设备投屏确认 (Device Guard) ──
+
+    def _on_guard_confirm_request(self, pending) -> None:
+        """Guard 确认请求回调 → 推送事件到前端"""
+        event_data = {
+            "request_id": pending.request_id,
+            "device": pending.device_info,
+            "timeout": self.device_guard.confirm_timeout,
+        }
+        print(json.dumps({
+            "event": "cast_confirm_request",
+            "data": event_data
+        }), flush=True)
+
+    def _respond_cast_confirm(self, params: dict) -> bool:
+        """用户响应投屏确认"""
+        request_id = params["request_id"]
+        approved = params["approved"]
+        policy = params.get("policy", "once")  # "once" | "always" | "blacklist"
+        return self.device_guard.confirm(request_id, approved, policy)
+
+    def _get_guard_devices(self, params: dict) -> dict:
+        """获取设备确认列表"""
+        return {
+            "trusted": self.device_guard.get_trusted_devices(),
+            "blacklisted": self.device_guard.get_blacklisted_devices(),
+        }
+
+    def _remove_guard_device(self, params: dict) -> bool:
+        """移除设备（从信任/黑名单中删除）"""
+        device_key = params["device_key"]
+        return self.device_guard.remove_device(device_key)
+
+    def _set_guard_policy(self, params: dict) -> bool:
+        """修改设备策略"""
+        device_key = params["device_key"]
+        policy = params["policy"]  # "trusted" | "blacklisted"
+        return self.device_guard.set_policy(device_key, policy)
+
+    def _get_guard_settings(self, params: dict) -> dict:
+        """获取设备确认设置"""
+        return {
+            "enabled": self.device_guard.enabled,
+            "confirm_timeout": self.device_guard.confirm_timeout,
+        }
+
+    def _save_guard_settings(self, params: dict) -> None:
+        """保存设备确认设置"""
+        if "enabled" in params:
+            self.device_guard.enabled = params["enabled"]
+        if "confirm_timeout" in params:
+            self.device_guard.confirm_timeout = params["confirm_timeout"]

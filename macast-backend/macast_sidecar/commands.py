@@ -581,23 +581,24 @@ class CommandHandler:
         force = params.get("force", False)
         ignored_version = self.config.ignored_update_version
 
-        # GitHub 配置
-        github_repo = "lanzeweie/HanCast"
-        github_api = f"https://api.github.com/repos/{github_repo}/releases/latest"
-
-        # Gitee 配置（预留）
-        gitee_repo = "lanzeweie/HanCast"
-        gitee_api = f"https://gitee.com/api/v5/repos/{gitee_repo}/releases/latest"
+        # 更新源配置: (api_url, timeout)
+        source_configs = {
+            "github": (
+                "https://api.github.com/repos/lanzeweie/HanCast/releases/latest",
+                1,   # GitHub 超时 1 秒
+            ),
+            "gitee": (
+                "https://gitee.com/api/v5/repos/buxiangqumingzi/han-cast/releases/latest",
+                3,   # Gitee 超时 3 秒
+            ),
+        }
 
         for source in sources:
+            if source not in source_configs:
+                continue
+            api_url, timeout = source_configs[source]
             try:
-                if source == "github":
-                    result = self._fetch_github_release(github_api, current_version)
-                elif source == "gitee":
-                    result = self._fetch_github_release(gitee_api, current_version, is_gitee=True)
-                else:
-                    continue
-
+                result = self._fetch_github_release(api_url, current_version, timeout=timeout)
                 if result:
                     # 检查是否被用户忽略（除非 force=True）
                     if not force and ignored_version and result["latest"] == ignored_version:
@@ -627,10 +628,10 @@ class CommandHandler:
             "error": "无法连接更新服务器",
         }
 
-    def _fetch_github_release(self, api_url: str, current_version: str, is_gitee: bool = False) -> Optional[dict]:
+    def _fetch_github_release(self, api_url: str, current_version: str, timeout: int = 2) -> Optional[dict]:
         """从 GitHub/Gitee releases API 获取最新版本"""
         headers = {"Accept": "application/vnd.github.v3+json"}
-        resp = requests.get(api_url, headers=headers, timeout=2)
+        resp = requests.get(api_url, headers=headers, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
 

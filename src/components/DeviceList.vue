@@ -1,10 +1,24 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDeviceStore } from '@/stores/device'
 import DeviceCard from './DeviceCard.vue'
 
 const { t } = useI18n()
 const deviceStore = useDeviceStore()
+
+// 控制刷新按钮旋转动画
+const isSpinning = ref(false)
+
+const handleRefresh = () => {
+  if (isSpinning.value) return // 防止重复点击
+  isSpinning.value = true
+  deviceStore.refresh()
+  // 10秒后停止动画
+  setTimeout(() => {
+    isSpinning.value = false
+  }, 10000)
+}
 </script>
 
 <template>
@@ -17,7 +31,7 @@ const deviceStore = useDeviceStore()
         </svg>
         <span>{{ t('devices.title') }}</span>
       </div>
-      <button class="device-list__refresh" @click="deviceStore.refresh()" :disabled="deviceStore.loading">
+      <button class="device-list__refresh" @click="handleRefresh">
         <svg
           viewBox="0 0 24 24"
           width="16"
@@ -25,7 +39,7 @@ const deviceStore = useDeviceStore()
           fill="none"
           stroke="currentColor"
           stroke-width="2"
-          :class="{ 'spinning': deviceStore.loading }"
+          :class="{ 'spinning': isSpinning }"
         >
           <path d="M23 4v6h-6M1 20v-6h6" />
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
@@ -83,18 +97,18 @@ const deviceStore = useDeviceStore()
   transition: all var(--transition-fast);
 }
 
-.device-list__refresh:hover:not(:disabled) {
+.device-list__refresh:hover {
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
 
-.device-list__refresh:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.spinning {
+  animation: spin-linear 10s linear;
 }
 
-.spinning {
-  animation: spin 1s linear infinite;
+@keyframes spin-linear {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(1800deg); }
 }
 
 .device-list__items {

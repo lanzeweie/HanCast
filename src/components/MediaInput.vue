@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useMediaStore } from '@/stores/media'
 import { useDeviceStore } from '@/stores/device'
 import { useCastStore } from '@/stores/cast'
+import type { Device } from '@/types/device'
 import Modal from './Modal.vue'
 
 const { t } = useI18n()
@@ -306,15 +307,31 @@ const onlineDevices = computed(() => {
 })
 
 async function onCast() {
-  // No default device → show selection modal
-  const defaultDevice = deviceStore.selectedDevice ?? deviceStore.devices.find(d => d.is_default && d.status === 'online')
-  if (!defaultDevice) {
+  // Find a suitable online device: prefer selected device (if online), then default device (if online), then any online device
+  let targetDevice: Device | null = null
+
+  // 1. Check if selected device is online
+  if (deviceStore.selectedDevice && deviceStore.selectedDevice.status === 'online') {
+    targetDevice = deviceStore.selectedDevice
+  }
+
+  // 2. If no selected device or it's offline, check default device
+  if (!targetDevice) {
+    const defaultDevice = deviceStore.devices.find(d => d.is_default && d.status === 'online')
+    if (defaultDevice) {
+      targetDevice = defaultDevice
+    }
+  }
+
+  // 3. If still no device, show selection modal
+  if (!targetDevice) {
     showDeviceModal.value = true
     return
   }
-  // Has default device → cast directly
+
+  // Has suitable device → cast directly
   if (mediaStore.mediaInfo) {
-    await castStore.startCast(defaultDevice.id, mediaStore.mediaInfo.uri, {
+    await castStore.startCast(targetDevice.id, mediaStore.mediaInfo.uri, {
       title: mediaStore.mediaInfo.title,
       mime_type: mediaStore.mediaInfo.mime_type,
       thumbnail: mediaStore.mediaInfo.thumbnail,
@@ -503,6 +520,7 @@ function onFileSelected(e: Event) {
     <Modal
       :visible="showDeviceModal"
       :title="t('devices.selectDevice')"
+      :show-icon="true"
       @close="showDeviceModal = false"
     >
       <p class="device-modal__hint">{{ t('devices.selectDeviceHint') }}</p>

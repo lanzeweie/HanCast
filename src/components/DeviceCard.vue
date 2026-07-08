@@ -39,6 +39,10 @@ const castingTitle = computed(() => {
   return title.length > 15 ? title.slice(0, 15) + '...' : title
 })
 
+const fullCastingTitle = computed(() => {
+  return deviceSession.value?.media?.title ?? ''
+})
+
 function onDocClick(e: MouseEvent) {
   if (showMenu.value && menuWrapRef.value && !menuWrapRef.value.contains(e.target as Node)) {
     showMenu.value = false
@@ -145,7 +149,7 @@ function toggleMenu() {
     <div class="device-card__actions">
       <!-- Casting: truncated video title + window icon -->
       <template v-if="isCastingToDevice">
-        <span class="device-card__casting-name">{{ castingTitle }}</span>
+        <span class="device-card__casting-name" :title="fullCastingTitle">{{ castingTitle }}</span>
         <button
           class="device-card__window-icon"
           @click.stop="onRestoreController"

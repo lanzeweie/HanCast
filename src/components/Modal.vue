@@ -2,6 +2,8 @@
 const props = defineProps<{
   visible: boolean
   title?: string
+  /** Show circular icon area above title */
+  showIcon?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +22,25 @@ function onOverlay(e: MouseEvent) {
     <Transition name="modal">
       <div v-if="visible" class="modal-overlay" @click="onOverlay">
         <div class="modal-box">
+
+          <!-- Optional circular icon area -->
+          <div v-if="showIcon" class="modal-icon-area">
+            <div class="modal-icon-circle">
+              <slot name="icon">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#5B9BF5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+              </slot>
+              <div class="modal-icon-badge">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#5B9BF5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 16.1A5 5 0 015.9 20M2 12.05A9 9 0 019.95 20M2 8V6a2 2 0 012-2h16a2 2 0 012 2v12a2 2 0 01-2 2h-6" />
+                  <circle cx="2" cy="20" r="1" fill="#5B9BF5" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
           <div v-if="title" class="modal-title">{{ title }}</div>
           <div class="modal-body">
             <slot />
@@ -47,23 +68,72 @@ function onOverlay(e: MouseEvent) {
 .modal-box {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--r-xl);
+  border-radius: 20px;
   padding: var(--sp-xl);
   min-width: 280px;
   max-width: 360px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+/* ── Circular icon area ── */
+.modal-icon-area {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.modal-icon-circle {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #EBF3FE;
+  border-radius: 50%;
+}
+
+/* Ripple rings expanding outward */
+.modal-icon-circle::before,
+.modal-icon-circle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #5B9BF5;
+  opacity: 0;
+  animation: ripple 3s ease-out infinite;
+}
+.modal-icon-circle::after {
+  animation-delay: 1.2s;
+}
+
+.modal-icon-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border: 2px solid #EBF3FE;
+  border-radius: 50%;
 }
 
 .modal-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--sp-md);
+  text-align: center;
+  margin-bottom: var(--sp-sm);
 }
 
 .modal-body {
   font-size: 13px;
   color: var(--text-secondary);
+  text-align: center;
   margin-bottom: var(--sp-xl);
 }
 
@@ -126,7 +196,7 @@ function onOverlay(e: MouseEvent) {
   background: #DC2626;
 }
 
-/* transition */
+/* ── Transition with icon bounce ── */
 .modal-enter-active,
 .modal-leave-active {
   transition: opacity var(--transition-normal);
@@ -140,9 +210,62 @@ function onOverlay(e: MouseEvent) {
   opacity: 0;
 }
 .modal-enter-from .modal-box {
-  transform: scale(0.95);
+  transform: scale(0.92) translateY(12px);
 }
 .modal-leave-to .modal-box {
-  transform: scale(0.95);
+  transform: scale(0.92) translateY(12px);
+}
+
+/* Icon area animations */
+.modal-enter-active .modal-icon-area {
+  animation: icon-area-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both;
+}
+.modal-enter-active .modal-icon-circle {
+  animation: icon-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
+}
+.modal-enter-active .modal-icon-badge {
+  animation: badge-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) 0.4s both;
+}
+
+/* Idle floating animation for the circle */
+.modal-enter-active .modal-icon-circle {
+  animation: icon-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both,
+             icon-float 3s ease-in-out 0.7s infinite;
+}
+
+@keyframes icon-area-in {
+  0% { transform: translateY(-20px) scale(0.8); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes icon-pop {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0) rotate(-30deg); opacity: 0; }
+  60% { transform: scale(1.2) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+@keyframes icon-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes ripple {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* ── Dark mode ── */
+[data-theme="dark"] .modal-icon-circle {
+  background: rgba(99, 102, 241, 0.15);
+}
+[data-theme="dark"] .modal-icon-badge {
+  background: var(--bg-card);
+  border-color: rgba(99, 102, 241, 0.15);
 }
 </style>

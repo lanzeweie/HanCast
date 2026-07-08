@@ -115,7 +115,7 @@ cd HanCast
 npm install
 
 # 3. 安装 Python 后端依赖
-cd macast-backend
+cd hancast-backend
 uv sync
 cd ..
 
@@ -137,8 +137,8 @@ npm run dev
 独立运行 Python Sidecar，用于调试 DLNA/SSDP 逻辑：
 
 ```bash
-cd macast-backend
-uv run python -m macast_sidecar.main
+cd hancast-backend
+uv run python -m hancast_sidecar.main
 ```
 
 ### 生产构建
@@ -176,8 +176,8 @@ HanCast/
 │   │   └── sidecar.rs          # SidecarManager（Rust ↔ Python）
 │   └── Cargo.toml
 │
-├── macast-backend/             # Python 后端
-│   └── macast_sidecar/
+├── hancast-backend/             # Python 后端
+│   └── hancast_sidecar/
 │       ├── main.py             # Sidecar 入口（stdin/stdout JSON 循环）
 │       ├── commands.py         # 命令路由（20 个命令）
 │       ├── ssdp.py             # SSDP 设备发现
@@ -203,7 +203,7 @@ HanCast/
 |------|------|
 | [CLAUDE.md](CLAUDE.md) | 项目指南与开发约束 |
 | [前端设计规格](docs/Macast-Frontend-Spec.md) | UI 组件、样式、路由设计 |
-| [后端设计规格](docs/Macast-Backend-Spec.md) | Rust/Python 架构、通信协议 |
+| [后端设计规格](docs/HanCast-Backend-Spec.md) | Rust/Python 架构、通信协议 |
 | [前端 API 接口](docs/Macast-Frontend-API.md) | 20 个 invoke 命令速查 |
 
 ---

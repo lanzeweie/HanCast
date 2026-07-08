@@ -1,0 +1,1014 @@
+"""
+DLNA 协议
+
+改动点:
+- 移除 CherryPy 依赖
+- 提取为独立类
+- 添加异步支持
+- 集成 aiohttp 服务
+"""
+
+import re
+import time
+import uuid
+import http.client
+import logging
+import threading
+import requests
+from lxml import etree
+from queue import Queue
+from typing import Optional, Dict, List, Callable
+from ..types.device import Device
+
+logger = logging.getLogger("hancast.dlna")
+
+NS_AVTRANSPORT = "urn:schemas-upnp-org:service:AVTransport:1"
+NS_RENDERING = "urn:schemas-upnp-org:service:RenderingControl:1"
+NS_CONNECTION = "urn:schemas-upnp-org:service:ConnectionManager:1"
+
+SERVICE_STATE_OBSERVED = {
+    "AVTransport": ['TransportState',
+                    'TransportStatus',
+                    'CurrentMediaDuration',
+                    'CurrentTrackDuration',
+                    'CurrentTrack',
+                    'NumberOfTracks'],
+    "RenderingControl": ['Volume', 'Mute'],
+    "ConnectionManager": ['A_ARG_TYPE_Direction',
+                          'SinkProtocolInfo',
+                          'CurrentConnectionIDs']
+}
+
+
+class ObserveClient:
+    def __init__(self, service, url, timeout=1800):
+        self.url = url
+        self.service = service
+        self.startTime = int(time.time())
+        self.sid = f"uuid:{uuid.uuid4()}"
+        self.timeout = timeout
+        self.seq = 0
+        self.host = re.findall(r"//([0-9:.]*)", url)[0]
+        self.path = re.findall(r"//[0-9:.]*(.*)$", url)[0]
+        self.error = 0
+
+    def is_timeout(self):
+        return int(time.time()) - self.startTime > self.timeout
+
+    def update(self, timeout=1800):
+        self.startTime = int(time.time())
+        self.timeout = timeout
+
+    def send_event_callback(self, data):
+        """Sending event data to client"""
+        logger.info(f"EVENT NOTIFY: service={self.service} to={self.host} "
+                    f"seq={self.seq} data={list(data.keys())}")
+        headers = {"NT": "upnp:event",
+                   "NTS": "upnp:propchange",
+                   "CONTENT-TYPE": 'text/xml; charset="utf-8"',
+                   "SERVER": "Windows/10 UPnP/1.0 HanCast/2.0",
+                   "SID": self.sid,
+                   "SEQ": self.seq,
+                   "TIMEOUT": f"Second-{self.timeout}"
+                   }
+        namespace = 'urn:schemas-upnp-org:event-1-0'
+        root = etree.Element(etree.QName(namespace, 'propertyset'),
+                             nsmap={'e': namespace})
+        if self.service == 'ConnectionManager':
+            for i in data:
+                prop = etree.SubElement(
+                    root, '{urn:schemas-upnp-org:event-1-0}property')
+                item = etree.SubElement(prop, i)
+                item.text = str(data[i])
+        else:
+            prop = etree.SubElement(
+                root, '{urn:schemas-upnp-org:event-1-0}property')
+            last_change = etree.SubElement(prop, 'LastChange')
+            event = etree.Element('Event')
+            event.attrib['xmlns'] = 'urn:schemas-upnp-org:metadata-1-0/AVT/'
+            instance_id = etree.SubElement(event, 'InstanceID')
+            instance_id.set('val', '0')
+            for i in data:
+                p = etree.SubElement(instance_id, i)
+                p.set('val', str(data[i]))
+            last_change.text = etree.tostring(event, encoding="UTF-8").decode()
+        data = etree.tostring(root, encoding="UTF-8")
+        logger.debug("Prop Change---------")
+        logger.debug(data)
+        conn = http.client.HTTPConnection(self.host, timeout=5)
+        conn.request("NOTIFY", self.path, data, headers)
+        conn.close()
+        self.seq = self.seq + 1
+
+
+class Service:
+    service_map = {}
+
+    @classmethod
+    def get(cls, name):
+        return cls.service_map.get(name, Service(name))
+
+    @classmethod
+    def build(cls, name, ns, actions):
+        cls.service_map[name] = Service(name, ns, actions)
+
+    def __init__(self, name, namespace='', actions={}):
+        self.name = name
+        self.namespace = namespace
+        self.actions = actions
+
+
+class DLNAProtocol:
+    """DLNA 协议实现"""
+
+    def __init__(self):
+        self._device: Optional[Device] = None
+        self._control_url: Optional[str] = None
+        self._renderer = None  # 渲染器引用，由 set_renderer() 设置
+        self.running = False
+        self.state_list = {}
+        self.action_list = {}
+        self.event_thread = None
+        self.event_subscribes = {}  # subscribe devices
+        self.state_queue = Queue()  # states needed be send to subscribe devices
+        self.removed_device_queue = Queue()  # devices needed be removed
+        self.append_device_queue = Queue()  # devices needed be added
+
+        # 回调函数 (必须在 init_state 之前初始化)
+        self._on_state_change: Optional[Callable[[str, any], None]] = None
+
+        # 设备确认 (Device Guard)
+        self._device_guard = None
+        self._caller_ip: Optional[str] = None
+
+        self.init_services()  # create services handle function from xml file
+        self.init_state()  # set default value
+
+    def set_callbacks(
+        self,
+        on_state_change: Optional[Callable[[str, any], None]] = None
+    ):
+        """设置回调函数"""
+        self._on_state_change = on_state_change
+
+    def set_renderer(self, renderer):
+        """设置渲染器引用
+
+        SOAP 处理方法需要通过此引用调用 MPV 播放器。
+        新版改为直接引用。
+        """
+        self._renderer = renderer
+        # 将 protocol 自身设置到 renderer，使 renderer 状态变化能回调到 protocol
+        if renderer:
+            renderer.set_protocol(self)
+
+    def set_device_guard(self, guard):
+        """设置设备确认管理器"""
+        self._device_guard = guard
+
+    def set_on_state_change(self, callback):
+        """设置状态变化回调函数"""
+        self._on_state_change = callback
+
+    def init_state(self):
+        """初始化状态"""
+        self.set_state('CurrentPlayMode', 'NORMAL')
+        self.set_state('TransportPlaySpeed', 1)
+        self.set_state('TransportStatus', 'OK')
+        self.set_state('RelativeCounterPosition', 2147483647)
+        self.set_state('AbsoluteCounterPosition', 2147483647)
+        self.set_state('A_ARG_TYPE_Direction', 'Output')
+        self.set_state('CurrentConnectionIDs', '0')
+        self.set_state('PlaybackStorageMedium', 'None')
+        # 加载 SinkProtocolInfo — 告诉 DLNA 控制器支持哪些媒体格式
+        # 缺失此初始化会导致 GetProtocolInfo 返回空列表，控制器可能拒绝设备
+        self._load_sink_protocol_info()
+
+    def _load_sink_protocol_info(self):
+        """加载 SinkProtocolInfo — 媒体格式支持列表
+
+        从 SinkProtocolInfo.csv 读取支持的媒体格式，设置到状态变量中。
+        DLNA 控制器通过 ConnectionManager.GetProtocolInfo 查询此列表，
+        以确定设备支持哪些媒体格式。如果返回空列表，控制器可能认为
+        设备不支持任何媒体而拒绝投屏。
+        """
+        import os
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'xml', 'SinkProtocolInfo.csv')
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                protocol_info = f.read().strip()
+            self.set_state('SinkProtocolInfo', protocol_info)
+            logger.info(f"Loaded SinkProtocolInfo: {len(protocol_info)} chars")
+        except FileNotFoundError:
+            # 回退：使用基本的媒体格式列表
+            fallback = ','.join([
+                'http-get:*:video/mp4:*',
+                'http-get:*:video/x-matroska:*',
+                'http-get:*:video/webm:*',
+                'http-get:*:video/mpeg:*',
+                'http-get:*:video/mpeg4:*',
+                'http-get:*:video/avi:*',
+                'http-get:*:video/x-flv:*',
+                'http-get:*:video/quicktime:*',
+                'http-get:*:audio/mpeg:*',
+                'http-get:*:audio/mp4:*',
+                'http-get:*:audio/x-flac:*',
+                'http-get:*:audio/ogg:*',
+                'http-get:*:audio/wav:*',
+                'http-get:*:image/jpeg:*',
+                'http-get:*:image/png:*',
+                'http-get:*:image/gif:*',
+            ])
+            self.set_state('SinkProtocolInfo', fallback)
+            logger.warning(f"SinkProtocolInfo.csv not found, using fallback: {csv_path}")
+
+    def init_services(self, xml_dir: str = None):
+        """初始化服务"""
+        import os
+        if xml_dir is None:
+            xml_dir = os.path.join(os.path.dirname(__file__), '..', 'xml')
+
+        description = os.path.join(xml_dir, 'Description.xml')
+        if not os.path.exists(description):
+            logger.warning(f"Description.xml not found at {description}")
+            return
+
+        desc = etree.parse(description).getroot()
+        for service_type in desc.iter('{urn:schemas-upnp-org:device-1-0}serviceType'):
+            namespace = service_type.text
+            service = service_type.text.split(":")[3]
+            xml_path = os.path.join(xml_dir, f'{service}.xml')
+            if os.path.exists(xml_path):
+                self.build_action(namespace, service, etree.parse(xml_path).getroot())
+
+    def build_action(self, namespace, service, xml):
+        """Build action and variable list from xml file"""
+        ns = '{urn:schemas-upnp-org:service-1-0}'
+        # get state variable from xml file
+        for state_variable in xml.iter(ns + 'stateVariable'):
+            name = state_variable.find(ns + "name").text
+
+            data = StateVariable(name,
+                                 state_variable.attrib['sendEvents'],
+                                 state_variable.find(ns + "dataType").text,
+                                 service)
+            default_value = state_variable.find(ns + "defaultValue")
+            if default_value is not None:
+                data.set_value(default_value.text)
+            allowed_value_list = state_variable.find(ns + "allowedValueList")
+            if allowed_value_list is not None:
+                values = [
+                    value.text
+                    for value in allowed_value_list.findall(ns + "allowedValue")
+                ]
+                data.set_allowed_value_list(values)
+
+            allowed_value_range = state_variable.find(ns + "allowedValueRange")
+            if allowed_value_range is not None:
+                data.set_allowed_value_range(
+                    int(allowed_value_range.find(ns + "minimum").text),
+                    int(allowed_value_range.find(ns + "maximum").text))
+            self.state_list[name] = data
+
+        # get action from xml file
+        actions = {}
+        for action in xml.iter(ns + 'action'):
+            name = action.find(ns + "name").text
+            input = []
+            output = []
+            argument_list = action.find(ns + "argumentList")
+            if argument_list is not None:
+                for argument in argument_list.findall(ns + 'argument'):
+                    data = Argument(
+                        argument.find(ns + "name").text,
+                        argument.find(ns + "relatedStateVariable").text)
+                    if argument.find(ns + "direction").text == 'in':
+                        input.append(data)
+                    else:
+                        output.append(data)
+            actions[name] = Action(name, input, output)
+        Service.build(service, namespace, actions)
+
+    def set_device(self, device: Device):
+        """设置目标设备（用于控制端模式）"""
+        self._device = device
+        self._resolve_control_url()
+
+    def play(self, media_uri: str = None, metadata: str = ""):
+        """播放媒体"""
+        if media_uri and self._device:
+            # 先停止远端现有播放，确保远端处于空闲状态
+            try:
+                self._send_action(
+                    NS_AVTRANSPORT, "Stop",
+                    {"InstanceID": 0}
+                )
+            except Exception:
+                pass
+            time.sleep(0.3)
+
+            # 设置 URI
+            self._send_action(
+                NS_AVTRANSPORT, "SetAVTransportURI",
+                {
+                    "InstanceID": 0,
+                    "CurrentURI": media_uri,
+                    "CurrentURIMetaData": metadata,
+                }
+            )
+            self.set_state('CurrentTrackURI', media_uri)
+
+            # 等待远端加载媒体（通过轮询 TrackDuration 判断）
+            self._wait_for_media_ready(timeout=3.0)
+
+        # 发送 Play
+        if self._device:
+            self._send_action(
+                NS_AVTRANSPORT, "Play",
+                {"InstanceID": 0, "Speed": 1}
+            )
+        self.set_state('TransportState', 'PLAYING')
+
+    def _wait_for_media_ready(self, timeout: float = 5.0) -> bool:
+        """等待远端设备媒体加载完成（通过轮询 TrackDuration 判断）"""
+        if not self._device:
+            return True
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                pos_info = self.get_position_info()
+                duration = pos_info.get('TrackDuration', '00:00:00')
+                if duration and duration != '00:00:00':
+                    logger.debug(f"Remote media ready, duration: {duration}")
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.3)
+        return False
+
+    def stop(self):
+        """停止播放"""
+        if self._device:
+            self._send_action(
+                NS_AVTRANSPORT, "Stop",
+                {"InstanceID": 0}
+            )
+        self.set_state('TransportState', 'STOPPED')
+
+    def pause(self):
+        """暂停播放"""
+        if self._device:
+            self._send_action(
+                NS_AVTRANSPORT, "Pause",
+                {"InstanceID": 0}
+            )
+        self.set_state('TransportState', 'PAUSED_PLAYBACK')
+
+    def seek(self, position: str):
+        """跳转到指定位置 (HH:MM:SS)"""
+        if self._device:
+            self._send_action(
+                NS_AVTRANSPORT, "Seek",
+                {
+                    "InstanceID": 0,
+                    "Unit": "REL_TIME",
+                    "Target": position,
+                }
+            )
+        self.set_state('RelativeTimePosition', position)
+        self.set_state('AbsoluteTimePosition', position)
+
+    def set_volume(self, volume: int):
+        """设置音量 (0-100)"""
+        if self._device:
+            self._send_action(
+                NS_RENDERING, "SetVolume",
+                {
+                    "InstanceID": 0,
+                    "Channel": "Master",
+                    "DesiredVolume": volume,
+                }
+            )
+        self.set_state('Volume', volume)
+
+    def set_mute(self, muted: bool):
+        """设置静音"""
+        if self._device:
+            self._send_action(
+                NS_RENDERING, "SetMute",
+                {
+                    "InstanceID": 0,
+                    "Channel": "Master",
+                    "DesiredMute": 1 if muted else 0,
+                }
+            )
+        self.set_state('Mute', muted)
+
+    def add_subscribe(self, service, url, timeout=1800):
+        """Add a DLNA client to subscribe list"""
+        logger.info(f"SUBSCRIBE ADD: service={service} url={url} timeout={timeout}")
+        for client in self.event_subscribes:
+            if self.event_subscribes[client].url == url and \
+                    self.event_subscribes[client].service == service:
+                s = self.event_subscribes[client]
+                s.update(timeout)
+                logger.debug("SUBSCRIBE UPDATE")
+                return {
+                    "SID": s.sid,
+                    "TIMEOUT": f"Second-{s.timeout}"
+                }
+        logger.debug("SUBSCRIBE ADD")
+        client = ObserveClient(service, url, timeout)
+        self.append_device_queue.put(client)
+        threading.Thread(target=self.send_init_event,
+                         kwargs={
+                             'service': service,
+                             'client': client
+                         }).start()
+        return {
+            "SID": client.sid,
+            "TIMEOUT": f"Second-{client.timeout}"
+        }
+
+    def send_init_event(self, service, client):
+        """When there is a client subscription,
+        the first event callback will send all the state values of the service."""
+        data = {}
+        for state in SERVICE_STATE_OBSERVED[service]:
+            data[state] = self.state_list[state].value
+        try:
+            client.send_event_callback(data)
+        except Exception as e:
+            logger.error(str(e))
+
+    def remove_subscribe(self, sid):
+        """Remove a DLNA client from subscribe list"""
+        if sid in self.event_subscribes:
+            self.removed_device_queue.put(sid)
+        return 200
+
+    def renew_subscribe(self, sid, timeout=1800):
+        """Renew a DLNA client in subscribe list"""
+        if sid in self.event_subscribes:
+            self.event_subscribes[sid].update(timeout)
+            return 200
+        return 412
+
+    def send_states_to_clients(self, state_change_list):
+        """Sending the states in the stateChangeList to the clients which subscribe to them."""
+        if not bool(state_change_list):
+            return
+        logger.debug(f"EVENT: state_change={list(state_change_list.keys())}, "
+                    f"subscribers={len(self.event_subscribes)}")
+        # remove offline clients
+        while not self.removed_device_queue.empty():
+            sid = self.removed_device_queue.get()
+            logger.info("Remove client: {}".format(sid))
+            del self.event_subscribes[sid]
+            self.removed_device_queue.task_done()
+        # add clients
+        while not self.append_device_queue.empty():
+            client = self.append_device_queue.get()
+            self.event_subscribes[client.sid] = client
+            self.append_device_queue.task_done()
+        # send stateChangeList to client
+        for sid in self.event_subscribes:
+            client = self.event_subscribes[sid]
+            if client.is_timeout():
+                self.remove_subscribe(client.sid)
+                continue
+            try:
+                # Only send state which within the service
+                state = {}
+                for name in state_change_list:
+                    if self.state_list[name].service == client.service:
+                        state[name] = state_change_list[name]
+                if len(state) == 0:
+                    continue
+                client.send_event_callback(state)
+
+            except Exception as e:
+                logger.error("send event error: " + str(e))
+                client.error = client.error + 1
+                if client.error > 10:
+                    logger.debug("remove " + client.sid)
+                    self.remove_subscribe(client.sid)
+
+    def event(self):
+        """DLNA Event thread
+        If a DLNA client subscribes to the dlna event,
+        it will automatically send the event to the client when the renderer state changes."""
+        while self.running:
+            if not self.state_queue.empty():
+                state = {}
+                while not self.state_queue.empty():
+                    k, v = self.state_queue.get()
+                    state[k] = v
+                    self.state_queue.task_done()
+                self.send_states_to_clients(state)
+            time.sleep(1)
+
+    def call(self, rawbody, caller_ip: str = None):
+        """Processing requests from DLNA clients"""
+        self._caller_ip = caller_ip
+        root = etree.fromstring(rawbody)[0][0]
+        param = {}
+        for node in root:
+            # 提取本地名 (去掉命名空间前缀)，与 XML 定义的 argument name 匹配
+            # 例如 {urn:...}InstanceID → InstanceID
+            local_name = etree.QName(node.tag).localname
+            param[local_name] = node.text
+        action = etree.QName(root.tag).localname
+        # 从命名空间提取服务名: urn:schemas-upnp-org:service:AVTransport:1 → AVTransport
+        ns = etree.QName(root.tag).namespace
+        service = ns.split(":")[3] if ns else ""
+        method = f"{service}_{action}"
+        logger.debug(f"SOAP: {method} params={param}")
+        res = {}
+        service_type = Service.get(service)
+        if action not in service_type.actions:
+            logger.warning(f"Unknown action: {service}.{action}")
+            # 返回 SOAP Fault 而不是崩溃
+            ns = 'http://schemas.xmlsoap.org/soap/envelope/'
+            ns_upnp = 'urn:schemas-upnp-org:control-1-0'
+            root = etree.Element(etree.QName(ns, 'Envelope'), nsmap={'s': ns})
+            body = etree.SubElement(root, etree.QName(ns, 'Body'), nsmap={'s': ns})
+            fault = etree.SubElement(body, etree.QName(ns, 'Fault'))
+            etree.SubElement(fault, 'faultcode').text = 's:Client'
+            etree.SubElement(fault, 'faultstring').text = 'UPnPError'
+            detail = etree.SubElement(fault, 'detail')
+            upnp_error = etree.SubElement(detail, etree.QName(ns_upnp, 'UPnPError'))
+            etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorCode')).text = '401'
+            etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorDescription')).text = f'Invalid action: {action}'
+            return etree.tostring(root, encoding="UTF-8", xml_declaration=False)
+        if hasattr(self, method):
+            data = {}
+            input = service_type.actions[action].input
+            for arg in input:
+                data[arg.name] = Argument(
+                    arg.name, arg.state,
+                    param[arg.name] if arg.name in param else None)
+                if arg.name in param:
+                    self.set_state(arg.state, param[arg.name])
+            try:
+                res = getattr(self, method)(data)
+            except Exception as e:
+                error_msg = str(e)
+                if "blacklisted" in error_msg or "rejected" in error_msg:
+                    logger.warning(f"Action {method} rejected: {error_msg}")
+                    ns = 'http://schemas.xmlsoap.org/soap/envelope/'
+                    ns_upnp = 'urn:schemas-upnp-org:control-1-0'
+                    root = etree.Element(etree.QName(ns, 'Envelope'), nsmap={'s': ns})
+                    body = etree.SubElement(root, etree.QName(ns, 'Body'), nsmap={'s': ns})
+                    fault = etree.SubElement(body, etree.QName(ns, 'Fault'))
+                    etree.SubElement(fault, 'faultcode').text = 's:Client'
+                    etree.SubElement(fault, 'faultstring').text = 'UPnPError'
+                    detail = etree.SubElement(fault, 'detail')
+                    upnp_error = etree.SubElement(detail, etree.QName(ns_upnp, 'UPnPError'))
+                    etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorCode')).text = '701'
+                    etree.SubElement(upnp_error, etree.QName(ns_upnp, 'errorDescription')).text = error_msg
+                    return etree.tostring(root, encoding="UTF-8", xml_declaration=False)
+                raise
+        else:
+            output = service_type.actions[action].output
+            for arg in output:
+                res[arg.name] = self.state_list[arg.state].value
+        if method not in ['ConnectionManager_GetProtocolInfo', 'AVTransport_GetPositionInfo', 'AVTransport_GetTransportInfo']:
+            logger.debug(f"res: {res}")
+
+        # build response xml
+        ns = 'http://schemas.xmlsoap.org/soap/envelope/'
+        encoding = 'http://schemas.xmlsoap.org/soap/encoding/'
+        root = etree.Element(etree.QName(ns, 'Envelope'), nsmap={'s': ns})
+        root.attrib[f'{{{ns}}}encodingStyle'] = encoding
+        body = etree.SubElement(root, etree.QName(ns, 'Body'), nsmap={'s': ns})
+        response = etree.SubElement(body,
+                                    etree.QName(
+                                        service_type.namespace, f'{action}Response'),
+                                    nsmap={'u': service_type.namespace})
+        for key in res:
+            prop = etree.SubElement(response, key)
+            prop.text = str(res[key])
+        return etree.tostring(root, encoding="UTF-8", xml_declaration=False)
+
+    def set_state(self, name: str, value) -> None:
+        """Set DLNA state which defined by xml file"""
+        # update states which will send to DLNA Client
+        if name in SERVICE_STATE_OBSERVED['AVTransport'] or \
+                name in SERVICE_STATE_OBSERVED['RenderingControl']:
+            logger.debug(f"setState: {name} {value}")
+            # When some states change, the DLNA client needs to be notified immediately
+            # We put this kind of state into state_queue, waiting to be sent to client.
+            self.state_queue.put((name, value))
+
+            # 触发回调
+            if self._on_state_change:
+                self._on_state_change(name, value)
+
+        # update other states
+        if name in self.state_list and self.state_list[name].value != value:
+            self.state_list[name].value = value
+
+    def get_state(self, name: str):
+        """Get DLNA state"""
+        if name in self.state_list:
+            return self.state_list[name].value
+        return ''
+
+    def start(self):
+        """Start render thread"""
+        if self.running:
+            return
+
+        self.running = True
+        self.event_thread = threading.Thread(target=self.event, daemon=True)
+        self.event_thread.start()
+        self.set_state_stop()
+
+    def stop_event_thread(self):
+        """Stop render thread"""
+        self.running = False
+
+    # The following method names are defined by the XML file
+
+    def RenderingControl_SetVolume(self, data):
+        volume = int(data['DesiredVolume'].value)
+        logger.info(f"SetVolume: {volume}")
+        if self._renderer:
+            self._renderer.set_media_volume(volume)
+        return {}
+
+    def RenderingControl_SetMute(self, data):
+        mute = data['DesiredMute']
+        mute_val = mute.value == 1 or mute.value == '1'
+        logger.info(f"SetMute: {mute_val}")
+        if self._renderer:
+            self._renderer.set_media_mute(mute_val)
+        return {}
+
+    def AVTransport_SetAVTransportURI(self, data):
+        # ── 设备确认检查 ──
+        if self._device_guard and self._caller_ip:
+            status = self._device_guard.check(self._caller_ip)
+            if status == "blacklisted":
+                logger.warning(f"Blocked blacklisted device: {self._caller_ip}")
+                raise Exception("Device blacklisted")
+            elif status == "pending":
+                pending = self._device_guard.create_pending_request(self._caller_ip)
+                approved = self._device_guard.wait_for_confirm(pending)
+                if not approved:
+                    logger.warning(f"Cast rejected by user: {self._caller_ip}")
+                    # 拒绝后重置状态，确保控制器轮询时看到"无媒体"
+                    self.set_state('TransportState', 'STOPPED')
+                    self.set_state('TransportStatus', 'OK')
+                    raise Exception("Cast rejected by user")
+
+        uri = data['CurrentURI'].value
+        logger.info(f"SetAVTransportURI: {uri}")
+        self.set_state_url(uri)
+        title = "HanCast"
+        try:
+            meta = etree.fromstring(data['CurrentURIMetaData'].value.encode())
+            title_xml = meta.find('.//{{{}}}title'.format(meta.nsmap['dc']))
+            if title_xml is not None and title_xml.text is not None:
+                title = title_xml.text
+            metadata = etree.tostring(meta, encoding="UTF-8", xml_declaration=False)
+        except Exception as e:
+            logger.error(str(e))
+            logger.error(data['CurrentURIMetaData'].value)
+            self.set_state('CurrentTrackMetaData', data['CurrentURIMetaData'].value)
+        else:
+            self.set_state('CurrentTrackMetaData', metadata.decode())
+        self.set_state('CurrentTrackTitle', title)
+        self.set_state('CurrentTrackURI', uri)
+        self.set_state('RelativeTimePosition', '00:00:00')
+        self.set_state('AbsoluteTimePosition', '00:00:00')
+        # 标准 DLNA 流程: SetAVTransportURI → PAUSED_PLAYBACK → Play → PLAYING
+        # 抖音/乐播SDK 依赖状态从 PAUSED_PLAYBACK 转换到 PLAYING 的事件通知
+        # 来确认投屏成功，直接设为 PLAYING 会导致控制层状态机无法推进
+        self.set_state('TransportState', 'PAUSED_PLAYBACK')
+        self.set_state('TransportStatus', 'OK')
+        # 调用渲染器加载媒体并自动播放
+        if self._renderer:
+            self._renderer.set_media_url(uri)
+            self._renderer.set_media_title(title)
+            self._renderer.set_media_resume()
+        return {}
+
+    def AVTransport_Play(self, data):
+        logger.info("Play")
+        if self._renderer:
+            self._renderer.set_media_resume()
+        self.set_state('TransportState', 'PLAYING')
+        self.set_state('TransportStatus', 'OK')
+        return {}
+
+    def AVTransport_Pause(self, data):
+        logger.info("Pause")
+        if self._renderer:
+            self._renderer.set_media_pause()
+        self.set_state('TransportState', 'PAUSED_PLAYBACK')
+        return {}
+
+    def AVTransport_Seek(self, data):
+        target = data['Target']
+        logger.info(f"Seek: {target.value}")
+        if self._renderer:
+            self._renderer.set_media_position(target.value)
+        self.set_state('RelativeTimePosition', target.value)
+        self.set_state('AbsoluteTimePosition', target.value)
+        return {}
+
+    def AVTransport_Stop(self, data):
+        logger.info("Stop")
+        if self._renderer:
+            self._renderer.set_media_stop()
+        self.set_state('TransportState', 'STOPPED')
+        return {}
+
+    # The following methods are usually used to update the states of
+    # DLNA Renderer according to the status obtained from the player.
+
+    def set_state_position(self, data: str):
+        self.set_state('RelativeTimePosition', data)
+        self.set_state('AbsoluteTimePosition', data)
+
+    def set_state_duration(self, data: str):
+        self.set_state('CurrentTrackDuration', data)
+        self.set_state('CurrentMediaDuration', data)
+
+    def set_state_pause(self):
+        self.set_state_transport('PAUSED_PLAYBACK')
+
+    def set_state_play(self):
+        self.set_state_transport('PLAYING')
+
+    def set_state_stop(self):
+        self.set_state_transport('STOPPED')
+
+    def set_state_eof(self):
+        self.set_state_transport('NO_MEDIA_PRESENT')
+
+    def set_state_transport(self, data: str):
+        self.set_state('TransportState', data)
+        self.set_state('TransportStatus', 'OK')
+
+    def set_state_transport_error(self):
+        self.set_state('TransportState', 'STOPPED')
+        self.set_state('TransportStatus', 'ERROR_OCCURRED')
+
+    def set_state_mute(self, data: bool):
+        self.set_state('Mute', data)
+
+    def set_state_volume(self, data: int):
+        self.set_state('Volume', data)
+
+    def set_state_speed(self, data: str):
+        self.set_state('TransportPlaySpeed', data)
+
+    def set_state_display_subtitle(self, data: bool):
+        self.set_state('DisplayCurrentSubtitle', data)
+
+    def set_state_url(self, data: str):
+        self.set_state('CurrentTrackURI', data)
+
+    def get_state_title(self) -> str:
+        return self.get_state('CurrentTrackTitle')
+
+    def get_state_url(self) -> str:
+        return self.get_state('CurrentTrackURI')
+
+    def get_state_position(self) -> str:
+        return self.get_state('RelativeTimePosition')
+
+    def get_state_duration(self) -> str:
+        return self.get_state('CurrentMediaDuration')
+
+    def get_state_volume(self) -> int:
+        return self.get_state('Volume')
+
+    def get_state_mute(self) -> bool:
+        return self.get_state('Mute')
+
+    def get_state_transport_state(self) -> str:
+        return self.get_state('TransportState')
+
+    def get_state_transport_status(self) -> str:
+        return self.get_state('TransportStatus')
+
+    def get_state_speed(self) -> str:
+        return self.get_state('TransportPlaySpeed')
+
+    def get_state_display_subtitle(self) -> bool:
+        return bool(self.get_state('DisplayCurrentSubtitle'))
+
+    def _resolve_control_url(self):
+        """解析设备的控制 URL"""
+        if not self._device:
+            return
+
+        url = f"http://{self._device.ip}:{self._device.port}/description.xml"
+        try:
+            # 获取设备描述 XML
+            resp = requests.get(url, timeout=5)
+            logger.debug(f"Device description response: status={resp.status_code}, length={len(resp.content)}")
+
+            # 检查响应内容
+            if not resp.content:
+                logger.error(f"Empty response from device: {self._device.ip}:{self._device.port}")
+                return
+
+            # 尝试解析 XML
+            try:
+                root = etree.fromstring(resp.content)
+            except etree.XMLSyntaxError as xml_err:
+                logger.error(f"Invalid XML from device {self._device.ip}:{self._device.port}: {xml_err}")
+                logger.debug(f"Response content: {resp.content[:500]}")
+                return
+
+            # 查找 AVTransport 服务
+            ns = {"upnp": "urn:schemas-upnp-org:device-1-0"}
+            for service in root.iter('{urn:schemas-upnp-org:device-1-0}service'):
+                service_type = service.findtext('upnp:serviceType', '', ns)
+                if 'AVTransport' in service_type:
+                    control_url = service.findtext('upnp:controlURL', '', ns)
+                    if control_url:
+                        if not control_url.startswith('/'):
+                            control_url = '/' + control_url
+                        self._control_url = f"http://{self._device.ip}:{self._device.port}{control_url}"
+                        logger.debug(f"Control URL: {self._control_url}")
+                        break
+        except requests.RequestException as req_err:
+            logger.error(f"Failed to connect to device {self._device.ip}:{self._device.port}: {req_err}")
+        except Exception as e:
+            logger.error(f"Failed to resolve control URL from {url}: {e}")
+
+    def get_position_info(self) -> dict:
+        """查询远程设备的播放进度 (GetPositionInfo)"""
+        if not self._device:
+            return {}
+        try:
+            result = self._send_action(
+                NS_AVTRANSPORT, "GetPositionInfo",
+                {"InstanceID": 0}
+            )
+            if result is None:
+                return {}
+            # 解析响应
+            ns = "{urn:schemas-upnp-org:service:AVTransport:1}"
+            info = {}
+            for child in result.iter():
+                tag = etree.QName(child.tag).localname
+                if tag in ('TrackDuration', 'TrackMetaData', 'TrackURI',
+                           'RelTime', 'AbsTime', 'Track', 'TrackCount'):
+                    info[tag] = child.text
+            logger.debug(f"GetPositionInfo: {info}")
+            return info
+        except Exception as e:
+            logger.error(f"GetPositionInfo failed: {e}")
+            return {}
+
+    def get_transport_info(self) -> dict:
+        """查询远程设备的传输状态 (GetTransportInfo)"""
+        if not self._device:
+            return {}
+        try:
+            result = self._send_action(
+                NS_AVTRANSPORT, "GetTransportInfo",
+                {"InstanceID": 0}
+            )
+            if result is None:
+                return {}
+            ns = "{urn:schemas-upnp-org:service:AVTransport:1}"
+            info = {}
+            for child in result.iter():
+                tag = etree.QName(child.tag).localname
+                if tag in ('CurrentTransportState', 'CurrentTransportStatus',
+                           'CurrentSpeed'):
+                    info[tag] = child.text
+            logger.debug(f"GetTransportInfo: {info}")
+            return info
+        except Exception as e:
+            logger.error(f"GetTransportInfo failed: {e}")
+            return {}
+
+    def get_volume_info(self) -> dict:
+        """查询远程设备的音量 (GetVolume)"""
+        if not self._device:
+            return {}
+        try:
+            result = self._send_action(
+                NS_RENDERING, "GetVolume",
+                {"InstanceID": 0, "Channel": "Master"}
+            )
+            if result is None:
+                return {}
+            info = {}
+            for child in result.iter():
+                tag = etree.QName(child.tag).localname
+                if tag == 'CurrentVolume':
+                    info['Volume'] = child.text
+            logger.debug(f"GetVolume: {info}")
+            return info
+        except Exception as e:
+            logger.error(f"GetVolume failed: {e}")
+            return {}
+
+    def _send_action(self, service: str, action: str, params: dict):
+        """发送 SOAP 请求"""
+        if not self._control_url:
+            logger.debug("No control URL, skip action: %s", action)
+            return None
+
+        logger.debug(f"SOAP OUT → {self._control_url} | {action} | params={params}")
+
+        # 构建 SOAP XML
+        envelope = etree.Element(
+            "{http://schemas.xmlsoap.org/soap/envelope/}Envelope"
+        )
+        body = etree.SubElement(
+            envelope,
+            "{http://schemas.xmlsoap.org/soap/envelope/}Body"
+        )
+        action_elem = etree.SubElement(
+            body,
+            f"{{{service}}}{action}"
+        )
+
+        for key, value in params.items():
+            child = etree.SubElement(action_elem, key)
+            child.text = str(value)
+
+        xml_data = etree.tostring(envelope, xml_declaration=True, encoding="utf-8")
+
+        headers = {
+            "Content-Type": 'text/xml; charset="utf-8"',
+            "SOAPAction": f'"{service}#{action}"',
+        }
+
+        try:
+            response = requests.post(
+                self._control_url,
+                data=xml_data,
+                headers=headers,
+                timeout=10,
+            )
+            response.raise_for_status()
+        except requests.RequestException as e:
+            logger.error(f"SOAP {action} failed to {self._control_url}: {e}")
+            raise
+
+        logger.debug(f"SOAP OUT ← {response.status_code} | {action}")
+        return etree.fromstring(response.content)
+
+
+class DataType:
+    boolean = 'boolean'
+    i2 = 'i2'
+    ui2 = 'ui2'
+    i4 = 'i4'
+    ui4 = 'ui4'
+    string = 'string'
+
+
+class StateVariable:
+    """The state of render"""
+
+    def __init__(self, name, send_events, datatype, service):
+        self.name = name
+        self.sendEvents = True if send_events == 'yes' else False
+        self.datatype = datatype
+        self.minimum = None
+        self.maximum = None
+        self.allowedValueList = None
+        self.value = '' if self.datatype == 'string' else 0
+        self.service = service
+
+    def set_value(self, value):
+        self.value = value
+
+    def set_allowed_value_list(self, values):
+        self.allowedValueList = values
+        if 'NOT_IMPLEMENTED' in values:
+            self.value = 'NOT_IMPLEMENTED'
+
+    def set_allowed_value_range(self, minimum, maximum):
+        self.minimum = minimum
+        self.maximum = maximum
+
+
+class Argument:
+    def __init__(self, name, state, value=None):
+        self.name = name
+        self.state = state
+        self.value = value
+
+
+class Action:
+    """Operations supported by render."""
+
+    def __init__(self, name, input, output):
+        self.name = name
+        self.input = input
+        self.output = output

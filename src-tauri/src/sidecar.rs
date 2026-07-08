@@ -25,7 +25,7 @@ pub struct SidecarManager {
 impl SidecarManager {
     /// Spawn the Python sidecar and start the stdout reader.
     ///
-    /// - Dev (`cargo tauri dev`):     `uv run python -m macast_sidecar.main`
+    /// - Dev (`cargo tauri dev`):     `uv run python -m hancast_sidecar.main`
     /// - Prod (`cargo tauri build`):  bundled Nuitka sidecar binary
     pub fn new(app: AppHandle) -> Result<Self, String> {
         let (rx, child) = {
@@ -33,16 +33,16 @@ impl SidecarManager {
             {
                 app.shell()
                     .command("uv")
-                    .args(["run", "python", "-m", "macast_sidecar.main"])
+                    .args(["run", "python", "-m", "hancast_sidecar.main"])
                     .env("PYTHONIOENCODING", "utf-8")
-                    .current_dir("../macast-backend")
+                    .current_dir("../hancast-backend")
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar via uv: {e}"))?
             }
             #[cfg(not(debug_assertions))]
             {
                 app.shell()
-                    .sidecar("macast-sidecar")
+                    .sidecar("hancast-sidecar")
                     .map_err(|e| format!("Sidecar binary not found: {e}"))?
                     .env("PYTHONIOENCODING", "utf-8")
                     .spawn()

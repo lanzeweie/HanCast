@@ -52,14 +52,14 @@ const targets = [
     ),
   },
   {
-    file: 'macast-backend/pyproject.toml',
+    file: 'hancast-backend/pyproject.toml',
     replace: (content) => content.replace(
       /^(version\s*=\s*")[\d.]+(")/m,
       `$1${newVersion}$2`
     ),
   },
   {
-    file: 'macast-backend/macast_sidecar/utils/config.py',
+    file: 'hancast-backend/hancast_sidecar/utils/config.py',
     replace: (content) => content.replace(
       /(self\.version\s*=\s*")[\d.]+(")/,
       `$1${newVersion}$2`

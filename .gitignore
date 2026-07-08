@@ -79,3 +79,6 @@ scripts/claude-frontend.bat
 scripts/claude-backend.bat
 scripts/claude-knowledge.bat
 scripts/claude-dashboard.bat
+
+# 微软打包
+src-tauri/MSIX

@@ -41,7 +41,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["../macast-backend/dist/macast-sidecar"],
+    "externalBin": ["../hancast-backend/dist/hancast-sidecar"],
     "resources": ["mpv/*"],
     "windows": {
       "nsis": {

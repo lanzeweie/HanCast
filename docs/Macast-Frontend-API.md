@@ -1,4 +1,4 @@
-# Macast 2.0 — 前端 API 接口文档
+# HanCast 2.0 — 前端 API 接口文档
 
 > **目标读者**: 前端开发者
 > **技术栈**: Tauri 2.0 + Vue 3 + TypeScript
@@ -8,7 +8,7 @@
 
 ## 1. 系统架构
 
-Macast 2.0 是三层架构应用：
+HanCast 2.0 是三层架构应用：
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -57,7 +57,7 @@ Rust ↔ Python 通过 stdin/stdout 使用 JSON 行协议：
 npm install
 
 # 安装 Python 依赖（首次）
-cd macast-backend && uv sync && cd ..
+cd hancast-backend && uv sync && cd ..
 
 # 启动完整应用
 npx tauri dev
@@ -89,13 +89,13 @@ cargo run            # 运行（会自动拉起 Python sidecar）
 #### Python Sidecar（独立测试）
 
 ```bash
-cd macast-backend
+cd hancast-backend
 
 # 方式 1: 持续运行模式（带界面输出）
 uv run python scripts/run_sidecar.py
 
 # 方式 2: stdin/stdout 模式（供 Rust 调用）
-uv run python -m macast_sidecar.main
+uv run python -m hancast_sidecar.main
 ```
 
 独立运行 Sidecar 可用于：
@@ -558,7 +558,7 @@ interface AppSettings {
 ```typescript
 await invoke('save_settings', {
   settings: {
-    friendly_name: '我的 Macast',
+    friendly_name: '我的 HanCast',
     default_device: 'uuid-xxxx'
   }
 });
@@ -671,9 +671,9 @@ async function handleCast(deviceId: string, mediaUri: string) {
       device_id: deviceId,
       media_uri: mediaUri
     });
-    await message('投屏成功', { title: 'Macast', type: 'info' });
+    await message('投屏成功', { title: 'HanCast', type: 'info' });
   } catch (error) {
-    await message(`投屏失败: ${error}`, { title: 'Macast', type: 'error' });
+    await message(`投屏失败: ${error}`, { title: 'HanCast', type: 'error' });
   }
 }
 ```

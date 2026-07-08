@@ -64,13 +64,13 @@ if (-not (Test-Path "package.json")) {
 
 if ($Clean) {
     Write-Host "  [CLEAN] 删除构建产物..." -ForegroundColor DarkYellow
-    @("macast-backend\dist", "macast-backend\build", "src-tauri\target\release") | ForEach-Object {
+    @("hancast-backend\dist", "hancast-backend\build", "src-tauri\target\release") | ForEach-Object {
         if (Test-Path $_) {
             Remove-Item $_ -Recurse -Force
             Write-Host "    删除 $_" -ForegroundColor DarkGray
         }
     }
-    Get-ChildItem "macast-backend\*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
+    Get-ChildItem "hancast-backend\*.spec" -ErrorAction SilentlyContinue | Remove-Item -Force
     Write-OK "已清理"
     Write-Host ""
 }
@@ -119,7 +119,7 @@ Write-Host ""
 
 Write-Step "2/4 初始化 Python 环境..."
 
-Push-Location macast-backend
+Push-Location hancast-backend
 try {
     uv sync --all-extras
     if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }

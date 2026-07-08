@@ -1,7 +1,7 @@
 #!/bin/bash
 echo ""
 echo "========================================"
-echo "  Macast-Han Test Suite"
+echo "  HanCast Test Suite"
 echo "========================================"
 echo ""
 
@@ -10,7 +10,7 @@ FAIL=0
 
 echo "[1/5] Python Backend Tests"
 echo "----------------------------------------"
-cd macast-backend
+cd hancast-backend
 if ./.venv/Scripts/python.exe -m pytest tests/ -v --tb=short; then
     echo "[PASS] Python tests"; ((PASS++))
 else
@@ -21,8 +21,8 @@ echo ""
 
 echo "[2/5] Sidecar Communication Test"
 echo "----------------------------------------"
-cd macast-backend
-RESULT=$(echo '{"id":1,"cmd":"get_devices","params":{}}' | ./.venv/Scripts/python.exe -m macast_sidecar.main 2>/dev/null)
+cd hancast-backend
+RESULT=$(echo '{"id":1,"cmd":"get_devices","params":{}}' | ./.venv/Scripts/python.exe -m hancast_sidecar.main 2>/dev/null)
 if echo "$RESULT" | grep -q '"success": true'; then
     echo "[PASS] Sidecar communication"; ((PASS++))
 else

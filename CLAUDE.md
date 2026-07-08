@@ -83,11 +83,11 @@ G:\Code\Macast-Han\
 │       ├── lib.rs               # Tauri 应用设置 + 20 个命令定义
 │       └── sidecar.rs           # Python Sidecar 管理器（stdin/stdout JSON）
 │
-├── macast-backend/              # Python Sidecar 后端
+├── hancast-backend/              # Python Sidecar 后端
 │   ├── pyproject.toml           # Python 项目配置
 │   ├── requirements.txt
 │   ├── uv.lock
-│   ├── macast_sidecar/
+│   ├── hancast_sidecar/
 │   │   ├── main.py              # Sidecar 入口（stdin/stdout JSON 循环）
 │   │   ├── commands.py          # CommandHandler — 命令路由
 │   │   ├── ssdp.py              # SSDP 设备发现（~540 行）
@@ -125,7 +125,7 @@ G:\Code\Macast-Han\
 ├── Macast-plugins-main/         # 原始 Macast 插件（参考用）
 ├── mpv/                         # 捆绑的 MPV 二进制文件（Windows, ~120MB）
 ├── docs/                        # 设计文档
-│   ├── Macast-Backend-Spec.md
+│   ├── HanCast-Backend-Spec.md
 │   ├── Macast-Frontend-API.md
 │   ├── Macast-Frontend-Spec.md
 │   └── 原型图.png
@@ -213,14 +213,14 @@ G:\Code\Macast-Han\
 
 | 文件 | 用途 | 状态 |
 |------|------|------|
-| `macast/ssdp.py` | SSDP 设备发现 | ✅ 已移植到 `macast_sidecar/ssdp.py` |
-| `macast/protocol.py` | DLNA 协议 | ✅ 已移植到 `macast_sidecar/protocol/dlna.py` |
-| `macast/renderer.py` | 渲染器基类 | ✅ 已移植到 `macast_sidecar/renderer/base.py` |
-| `macast_renderer/mpv.py` | MPV 播放器 | ✅ 已移植到 `macast_sidecar/renderer/mpv.py` |
+| `macast/ssdp.py` | SSDP 设备发现 | ✅ 已移植到 `hancast_sidecar/ssdp.py` |
+| `macast/protocol.py` | DLNA 协议 | ✅ 已移植到 `hancast_sidecar/protocol/dlna.py` |
+| `macast/renderer.py` | 渲染器基类 | ✅ 已移植到 `hancast_sidecar/renderer/base.py` |
+| `macast_renderer/mpv.py` | MPV 播放器 | ✅ 已移植到 `hancast_sidecar/renderer/mpv.py` |
 | `macast/server.py` | HTTP 服务 | ✅ 重写为 `protocol/server.py` + `media/server.py`（使用 http.server） |
 | `macast/gui.py` | 系统托盘 | ❌ 废弃，由 Tauri 前端替代 |
 | `macast/utils.py` | 工具函数 | ✅ 部分复用到 `utils/config.py` + `utils/logger.py` |
-| `macast/xml/*.xml` | UPnP 描述 | ✅ 直接复用到 `macast_sidecar/xml/` |
+| `macast/xml/*.xml` | UPnP 描述 | ✅ 直接复用到 `hancast_sidecar/xml/` |
 
 ## 依赖
 
@@ -267,7 +267,7 @@ cargo tauri dev
 npm run dev
 
 # 仅 Python 后端
-cd macast-backend && uv run python -m macast_sidecar.main
+cd hancast-backend && uv run python -m hancast_sidecar.main
 ```
 
 ### 生产构建
@@ -276,7 +276,7 @@ cd macast-backend && uv run python -m macast_sidecar.main
 cargo tauri build
 
 # 构建 Python Sidecar（PyInstaller）
-cd macast-backend && python scripts/build_sidecar.py
+cd hancast-backend && python scripts/build_sidecar.py
 ```
 
 ### 版本管理
@@ -292,8 +292,8 @@ scripts/sync-version.cjs
       │
       ├──▶ src-tauri/tauri.conf.json
       ├──▶ src-tauri/Cargo.toml
-      ├──▶ macast-backend/pyproject.toml
-      ├──▶ macast-backend/macast_sidecar/utils/config.py
+      ├──▶ hancast-backend/pyproject.toml
+      ├──▶ hancast-backend/hancast_sidecar/utils/config.py
       ├──▶ src/api/commands.ts (mock 数据)
       └──▶ src/stores/settings.ts (默认值)
 ```
@@ -314,7 +314,7 @@ npm run version:set -- 2.0.0
 ### 测试
 ```bash
 # Python 测试
-cd macast-backend && uv run pytest
+cd hancast-backend && uv run pytest
 
 # 前端测试（待实现）
 npm run test

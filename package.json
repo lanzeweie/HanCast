@@ -8,7 +8,7 @@
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:sidecar": "cd macast-backend && uv sync --all-extras && uv run python scripts/build_sidecar.py",
+    "build:sidecar": "cd hancast-backend && uv sync --all-extras && uv run python scripts/build_sidecar.py",
     "version:sync": "node scripts/sync-version.cjs",
     "version:set": "node scripts/sync-version.cjs",
     "prebuild": "node scripts/sync-version.cjs"

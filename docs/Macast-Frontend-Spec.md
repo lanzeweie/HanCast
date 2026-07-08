@@ -1,4 +1,4 @@
-# Macast 2.0 — 前端设计规格
+# HanCast 2.0 — 前端设计规格
 
 > **文档性质**: Tauri 2.0 前端 UI/UX 专属方案
 > **对应层级**: WebView 层 + Rust Tauri 壳层
@@ -41,7 +41,7 @@
 ```jsonc
 // tauri.conf.json → app.windows[0]
 {
-  "title": "Macast",
+  "title": "HanCast",
   "width": 420,
   "height": 600,
   "minWidth": 360,
@@ -94,7 +94,7 @@ pub fn apply(_window: &tauri::Window) {
 
 ## 3. 前端 ↔ 后端交互
 
-> 完整的三层通信协议定义见 [Macast-Backend-Spec.md §2 交互层定义](./Macast-Backend-Spec.md#2-交互层定义-三层通信)
+> 完整的三层通信协议定义见 [HanCast-Backend-Spec.md §2 交互层定义](./HanCast-Backend-Spec.md#2-交互层定义-三层通信)
 
 ### 3.1 前端视角的调用链
 
@@ -239,7 +239,7 @@ async function handleCast(deviceId: string) {
 
 ```
 ┌──────────────────────────────────────────┐
-│  🖥️ Macast              ⚙️    ─    ✕   │
+│  🖥️ HanCast              ⚙️    ─    ✕   │
 └──────────────────────────────────────────┘
 ```
 
@@ -573,7 +573,7 @@ export const saveSettings = (settings: AppSettings) => invoke('save_settings', {
 ```jsonc
 // locales/zh-CN.json
 {
-  "app.title": "Macast",
+  "app.title": "HanCast",
   "media.dragHint": "拖拽媒体文件到此处",
   "media.pasteHint": "或粘贴媒体链接",
   "media.linkPlaceholder": "支持视频 / 图片 / 音乐链接",
@@ -642,7 +642,7 @@ src/
 ## 11. 前端开发任务
 
 ### Phase 1: 项目初始化
-- [ ] `npm create tauri-app macast -- --template vue-ts`
+- [ ] `npm create tauri-app hancast -- --template vue-ts`
 - [ ] 配置 Vite + Vue 3 + TypeScript
 - [ ] 集成 Pinia、vue-i18n、vue-router
 - [ ] 配置 tauri-plugin-vibrancy / tauri-plugin-mica

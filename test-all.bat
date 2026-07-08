@@ -3,7 +3,7 @@ chcp 65001 >nul 2>&1
 
 echo.
 echo ========================================
-echo   Macast-Han Test Suite
+echo   HanCast Test Suite
 echo ========================================
 echo.
 
@@ -12,7 +12,7 @@ set FAIL=0
 
 echo [1/5] Python Backend Tests
 echo ----------------------------------------
-cd macast-backend
+cd hancast-backend
 call .venv\Scripts\python.exe -m pytest tests/ -v --tb=short
 if %ERRORLEVEL% EQU 0 (
     echo [PASS] Python tests
@@ -26,8 +26,8 @@ echo.
 
 echo [2/5] Sidecar Communication Test
 echo ----------------------------------------
-cd macast-backend
-echo {"id":1,"cmd":"get_devices","params":{}} | .venv\Scripts\python.exe -m macast_sidecar.main 2>nul
+cd hancast-backend
+echo {"id":1,"cmd":"get_devices","params":{}} | .venv\Scripts\python.exe -m hancast_sidecar.main 2>nul
 if %ERRORLEVEL% EQU 0 (
     echo [PASS] Sidecar communication
     set /a PASS+=1

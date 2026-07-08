@@ -14,7 +14,10 @@ logger = logging.getLogger("macast.dlna.server")
 
 
 class DLNAHandler(BaseHTTPRequestHandler):
-    """DLNA HTTP 处理器"""
+    """DLNA HTTP 处理器
+
+    使用 HTTP/1.0 以确保与各种 DLNA 控制器的兼容性。
+    """
 
     # 类变量，由外部设置
     friendly_name = "Macast"
@@ -22,7 +25,9 @@ class DLNAHandler(BaseHTTPRequestHandler):
     ip = "127.0.0.1"
     port = 8080
     xml_dir = ""
-    command_handler = None  # 命令处理器引用
+    command_handler = None
+    # 服务器信息，格式: {OS}/{OSVersion} UPnP/1.0 {App}/{AppVersion}
+    server_info = "Windows/10 UPnP/1.0 Macast/2.0"
 
     def do_GET(self):
         """处理 GET 请求"""
@@ -38,10 +43,8 @@ class DLNAHandler(BaseHTTPRequestHandler):
     def do_SUBSCRIBE(self):
         """处理 SUBSCRIBE 请求 (事件订阅)
 
-        原版 Macast 的 DLNAHandler.SUBSCRIBE 会调用
-        protocol.add_subscribe(service, suburl, timeout) 来存储订阅者，
-        然后事件线程通过 send_states_to_clients() 发送状态变化通知。
-        如果不调用 add_subscribe，订阅者不会被存储，状态变化无法通知到控制器。
+        RENEW (SID 存在): TIMEOUT 发送纯数字
+        ADD (CALLBACK 存在): TIMEOUT 发送 "Second-{timeout}" 格式
         """
         logger.info(f"SUBSCRIBE: {self.path}")
 
@@ -54,7 +57,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
         timeout = int(timeout_header.split('-')[-1]) if timeout_header else 1800
 
         if sid_header:
-            # 续订 — 委托给 protocol.renew_subscribe()
+            # 续订
             logger.info(f"RENEW SUBSCRIBE: service={service} SID={sid_header}")
             if self.command_handler and hasattr(self.command_handler, 'protocol'):
                 res = self.command_handler.protocol.renew_subscribe(sid_header, timeout)
@@ -64,10 +67,11 @@ class DLNAHandler(BaseHTTPRequestHandler):
                     return
             self.send_response(200)
             self.send_header('SID', sid_header)
-            self.send_header('TIMEOUT', f'Second-{timeout}')
+            self.send_header('TIMEOUT', timeout)
+            self.send_header('Content-Length', '0')
             self.end_headers()
         elif callback_header:
-            # 新订阅 — 委托给 protocol.add_subscribe()
+            # 新订阅
             import re
             suburl_match = re.findall(r"<(.*?)>", callback_header)
             if suburl_match:
@@ -79,6 +83,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header('SID', res['SID'])
                     self.send_header('TIMEOUT', res['TIMEOUT'])
+                    self.send_header('Content-Length', '0')
                     self.end_headers()
                 else:
                     logger.error("SUBSCRIBE: no protocol handler")
@@ -91,10 +96,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
             self.send_error(412)
 
     def do_UNSUBSCRIBE(self):
-        """处理 UNSUBSCRIBE 请求 (取消订阅)
-
-        原版 Macast 调用 protocol.remove_subscribe(sid) 移除订阅者。
-        """
+        """处理 UNSUBSCRIBE 请求 (取消订阅)"""
         logger.info(f"UNSUBSCRIBE: {self.path}")
         sid_header = self.headers.get('SID')
         if sid_header:
@@ -102,18 +104,14 @@ class DLNAHandler(BaseHTTPRequestHandler):
             if self.command_handler and hasattr(self.command_handler, 'protocol'):
                 self.command_handler.protocol.remove_subscribe(sid_header)
             self.send_response(200)
+            self.send_header('Content-Length', '0')
             self.end_headers()
         else:
             logger.error("UNSUBSCRIBE: missing SID")
             self.send_error(412)
 
     def do_POST(self):
-        """处理 POST 请求 (SOAP) — 委托给 DLNAProtocol.call() 处理
-
-        原版 Macast 使用 CherryPy 的 MethodDispatcher 将 POST 请求路由到
-        DLNAHandler.POST，然后调用 self.protocol.call(rawbody) 处理 SOAP。
-        新版保持相同的委托模式，确保所有 SOAP 响应使用协议状态变量。
-        """
+        """处理 POST 请求 (SOAP) — 委托给 DLNAProtocol.call() 处理"""
         try:
             # 读取请求体
             content_length = int(self.headers.get('Content-Length', 0))
@@ -133,10 +131,11 @@ class DLNAHandler(BaseHTTPRequestHandler):
                 self.send_error(503, "Service not ready")
                 return
 
-            # 发送响应 (EXT 头与原始 Macast 一致)
+            # 发送响应，必须包含 Content-Length 以确保客户端能正确解析
             self.send_response(200)
             self.send_header('Content-Type', 'text/xml; charset="utf-8"')
             self.send_header('EXT', '')
+            self.send_header('Content-Length', str(len(response)))
             self.end_headers()
             self.wfile.write(response)
 
@@ -171,7 +170,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header('Content-Type', 'text/xml; charset="utf-8"')
-            self.send_header('Server', 'Macast/2.0 UPnP/1.0')
+            self.send_header('Server', self.server_info)
             xml_bytes = xml.encode('utf-8')
             self.send_header('Content-Length', str(len(xml_bytes)))
             self.end_headers()
@@ -208,7 +207,7 @@ class DLNAHandler(BaseHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header('Content-Type', 'text/xml; charset="utf-8"')
-            self.send_header('Server', 'Macast/2.0 UPnP/1.0')
+            self.send_header('Server', self.server_info)
             xml_bytes = xml.encode('utf-8')
             self.send_header('Content-Length', str(len(xml_bytes)))
             self.end_headers()
@@ -242,8 +241,10 @@ class DLNAHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset="utf-8"')
+        html_bytes = html.encode('utf-8')
+        self.send_header('Content-Length', str(len(html_bytes)))
         self.end_headers()
-        self.wfile.write(html.encode('utf-8'))
+        self.wfile.write(html_bytes)
 
     def log_message(self, format, *args):
         """重写日志方法"""

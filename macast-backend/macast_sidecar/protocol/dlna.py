@@ -66,6 +66,7 @@ class ObserveClient:
         headers = {"NT": "upnp:event",
                    "NTS": "upnp:propchange",
                    "CONTENT-TYPE": 'text/xml; charset="utf-8"',
+                   "SERVER": "Windows/10 UPnP/1.0 Macast/2.0",
                    "SID": self.sid,
                    "SEQ": self.seq,
                    "TIMEOUT": f"Second-{self.timeout}"
@@ -681,7 +682,10 @@ class DLNAProtocol:
         self.set_state('CurrentTrackURI', uri)
         self.set_state('RelativeTimePosition', '00:00:00')
         self.set_state('AbsoluteTimePosition', '00:00:00')
-        self.set_state('TransportState', 'PLAYING')
+        # 标准 DLNA 流程: SetAVTransportURI → PAUSED_PLAYBACK → Play → PLAYING
+        # 抖音/乐播SDK 依赖状态从 PAUSED_PLAYBACK 转换到 PLAYING 的事件通知
+        # 来确认投屏成功，直接设为 PLAYING 会导致控制层状态机无法推进
+        self.set_state('TransportState', 'PAUSED_PLAYBACK')
         self.set_state('TransportStatus', 'OK')
         # 调用渲染器加载媒体并自动播放
         if self._renderer:

@@ -18,7 +18,7 @@ import requests
 from lxml import etree
 from queue import Queue
 from typing import Optional, Dict, List, Callable
-from ..types.device import Device
+from ..models.device import Device
 
 logger = logging.getLogger("hancast.dlna")
 

@@ -18,7 +18,7 @@ import time
 from email.utils import formatdate
 from lxml import etree
 from typing import Dict, List, Optional, Callable
-from .types.device import Device
+from .models.device import Device
 
 logger = logging.getLogger("hancast.ssdp")
 

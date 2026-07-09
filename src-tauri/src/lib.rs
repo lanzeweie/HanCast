@@ -404,6 +404,13 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
         ))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 当第二个实例启动时，聚焦到已运行的窗口
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .on_menu_event(|app, event| {
             if event.id() == "show" {
                 if let Some(window) = app.get_webview_window("main") {

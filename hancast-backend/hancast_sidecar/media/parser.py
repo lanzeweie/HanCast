@@ -12,7 +12,7 @@ import mimetypes
 import logging
 import requests
 from urllib.parse import urlparse
-from ..types.media import MediaInfo
+from ..models.media import MediaInfo
 
 logger = logging.getLogger("hancast.media.parser")
 

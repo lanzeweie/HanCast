@@ -11,11 +11,21 @@ Tauri Sidecar 入口 - 通过 stdin/stdout JSON 与 Rust 通信
 """
 
 import sys
+import os
 import json
 import logging
 import signal
-from .commands import CommandHandler
-from .utils.logger import setup_logger, get_logger
+import subprocess
+
+# 兼容两种运行模式:
+#   1. 模块执行: python -m hancast_sidecar.main  → 相对导入
+#   2. Nuitka standalone: 直接执行编译后的 exe    → 绝对导入
+try:
+    from .commands import CommandHandler
+    from .utils.logger import setup_logger, get_logger
+except ImportError:
+    from hancast_sidecar.commands import CommandHandler
+    from hancast_sidecar.utils.logger import setup_logger, get_logger
 
 # Windows 下强制 stdin/stdout/stderr 使用 UTF-8 编码
 if sys.platform == 'win32':
@@ -35,8 +45,40 @@ def _emit_event(event_name: str, data: dict = None):
     print(json.dumps(event, ensure_ascii=False), flush=True)
 
 
+def _launch_main_if_standalone():
+    """检测是否独立运行，如果是则启动主程序并退出"""
+    # Tauri 启动时 stdin 是管道，用户双击时 stdin 是终端
+    if not sys.stdin.isatty():
+        return False  # Tauri 启动，继续正常运行
+
+    logger.info("Standalone mode detected (user double-clicked), launching main program...")
+
+    # 查找主程序：在 sidecar 同级目录
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+    else:
+        exe_dir = os.path.dirname(os.path.abspath(__file__))
+
+    main_exe = "HanCast.exe" if sys.platform == 'win32' else "HanCast"
+    main_path = os.path.join(exe_dir, main_exe)
+
+    if os.path.exists(main_path):
+        try:
+            subprocess.Popen([main_path], close_fds=True)
+            logger.info(f"Main program launched: {main_path}")
+        except Exception as e:
+            logger.error(f"Failed to launch main program: {e}")
+    else:
+        logger.warning(f"Main program not found at: {main_path}")
+
+    sys.exit(0)
+
+
 def main():
     """Sidecar 主循环"""
+    # 检测是否独立运行，如果是则启动主程序并退出
+    _launch_main_if_standalone()
+
     handler = CommandHandler()
 
     # 优雅退出

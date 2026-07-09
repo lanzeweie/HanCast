@@ -9,6 +9,8 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+  // 使用相对路径，确保 Tauri 打包后资源能正确加载
+  base: './',
   // Tauri expects a fixed port
   server: {
     port: 1420,

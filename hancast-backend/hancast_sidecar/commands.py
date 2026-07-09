@@ -15,10 +15,10 @@ from .renderer.mpv import MPVRenderer
 from .media.parser import MediaParser
 from .media.server import MediaServer
 from .media.bili_resolver import BiliResolver
-from .types.device import Device
-from .types.media import MediaInfo
-from .types.cast import CastState
-from .types.session import DeviceCastSession
+from .models.device import Device
+from .models.media import MediaInfo
+from .models.cast import CastState
+from .models.session import DeviceCastSession
 from .utils.config import Config
 from .security.guard import DeviceGuard
 from .utils.mpv_manager import MpvManager

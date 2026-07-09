@@ -44,10 +44,18 @@ desktop.ini
 !src-tauri/icons/*.png
 !src-tauri/icons/*.icns
 
-# ── PyInstaller ──
+# ── PyInstaller / Nuitka ──
 build/
 dist/
 *.spec
+src-tauri/*.dll
+src-tauri/*.pyd
+src-tauri/hancast_sidecar/
+src-tauri/certifi/
+src-tauri/lxml/
+src-tauri/charset_normalizer/
+src-tauri/dist-portable/
+src-tauri/hancast-sidecar/
 
 # ── 日志 ──
 *.log

@@ -10,9 +10,9 @@ class TestImports(unittest.TestCase):
 
     def test_types(self):
         """测试类型模块"""
-        from hancast_sidecar.types.device import Device
-        from hancast_sidecar.types.media import MediaInfo
-        from hancast_sidecar.types.cast import CastState
+        from hancast_sidecar.models.device import Device
+        from hancast_sidecar.models.media import MediaInfo
+        from hancast_sidecar.models.cast import CastState
 
         # 测试 Device
         device = Device(

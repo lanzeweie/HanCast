@@ -29,7 +29,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http: https: data: blob: asset:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob: asset:; media-src 'self' http: https: data: blob: asset:; connect-src 'self' http: https: ws:",
+      "csp": "default-src 'self' http: https: data: blob: asset:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' blob:; font-src 'self' http: https: data: blob:; img-src 'self' http: https: data: blob: asset:; media-src 'self' http: https: data: blob: asset:; connect-src 'self' http: https: ws: ipc: tauri:; worker-src 'self' blob:; frame-src 'self' blob:;",
       "assetProtocol": {
         "enable": true,
         "scope": {
@@ -41,8 +41,17 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["../hancast-backend/dist/hancast-sidecar"],
-    "resources": ["mpv/*"],
+    "externalBin": ["hancast-sidecar/hancast-sidecar"],
+    "resources": [
+      "mpv/*",
+      "mpv/portable_config/**/*",
+      "hancast-sidecar/*.dll",
+      "hancast-sidecar/*.pyd",
+      "hancast-sidecar/hancast_sidecar/**/*",
+      "hancast-sidecar/certifi/**/*",
+      "hancast-sidecar/lxml/**/*",
+      "hancast-sidecar/charset_normalizer/**/*"
+    ],
     "windows": {
       "nsis": {
         "languages": ["SimpChinese", "English"]

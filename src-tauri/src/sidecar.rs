@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use tauri::async_runtime::Receiver;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{oneshot, Mutex};
@@ -41,10 +41,18 @@ impl SidecarManager {
             }
             #[cfg(not(debug_assertions))]
             {
+                // Nuitka standalone 需要工作目录为依赖所在目录
+                // 所有依赖文件（DLL、pyd、Python 模块）都在 resource_dir 根目录
+                let resource_dir = app
+                    .path()
+                    .resource_dir()
+                    .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+
                 app.shell()
                     .sidecar("hancast-sidecar")
                     .map_err(|e| format!("Sidecar binary not found: {e}"))?
                     .env("PYTHONIOENCODING", "utf-8")
+                    .current_dir(resource_dir)
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
             }

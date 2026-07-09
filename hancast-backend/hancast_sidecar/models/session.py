@@ -6,7 +6,7 @@ import logging
 from typing import Optional, Callable, Any
 from .cast import CastState
 from ..protocol.dlna import DLNAProtocol
-from ..types.device import Device
+from .device import Device
 
 logger = logging.getLogger("hancast.session")
 

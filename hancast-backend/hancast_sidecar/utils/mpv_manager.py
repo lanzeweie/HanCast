@@ -10,7 +10,7 @@ import logging
 import subprocess
 from typing import Optional
 
-from ..types.mpv import MpvStatus, MpvInfo
+from ..models.mpv import MpvStatus, MpvInfo
 from .config import Config
 
 logger = logging.getLogger("hancast.mpv_manager")

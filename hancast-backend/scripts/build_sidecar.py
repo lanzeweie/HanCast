@@ -5,7 +5,6 @@ import sys
 import platform
 import subprocess
 import shutil
-import glob
 
 
 def get_target_triple():
@@ -29,31 +28,47 @@ def get_target_triple():
         raise RuntimeError(f"Unsupported platform: {system}")
 
 
+def copy_icon(src_tauri_dir):
+    """复制 HanCast-air.png 图标到 src-tauri/icons/ 目录"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.dirname(current_dir)
+    png_dir = os.path.join(os.path.dirname(project_dir), "png")
+    icon_src = os.path.join(png_dir, "HanCast-air.png")
+    icons_dir = os.path.join(src_tauri_dir, "icons")
+
+    if os.path.exists(icon_src):
+        os.makedirs(icons_dir, exist_ok=True)
+        icon_dst = os.path.join(icons_dir, "icon.png")
+        shutil.copy2(icon_src, icon_dst)
+        print(f"Copied icon: {icon_src} -> {icon_dst}")
+
+        icon_128_2x_dst = os.path.join(icons_dir, "128x128@2x.png")
+        shutil.copy2(icon_src, icon_128_2x_dst)
+        print(f"Copied icon: {icon_src} -> {icon_128_2x_dst}")
+    else:
+        print(f"Warning: Icon not found at {icon_src}")
+
+
 def build(force=False):
     """
-    构建 Sidecar 为 standalone 目录结构（扁平化到 src-tauri/）
-
-    输出到 src-tauri/ 目录，供 Tauri externalBin + resources 使用。
+    构建 Sidecar 到 src-tauri/hancast-sidecar/ 子目录
 
     输出结构:
-        src-tauri/
+        src-tauri/hancast-sidecar/
         ├── hancast-sidecar-{triple}.exe   ← 入口（externalBin）
-        ├── *.dll / *.pyd / *.so           ← 依赖（resources glob）
+        ├── *.dll / *.pyd / *.so           ← 依赖
         ├── hancast_sidecar/
         │   └── xml/                        ← 运行时数据
         ├── certifi/
         ├── lxml/
         └── charset_normalizer/
-
-    Tauri 配置:
-        externalBin: ["hancast-sidecar"]
-        resources: ["*.dll", "*.pyd", "*.so", "hancast_sidecar/**/*", ...]
     """
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_dir = os.path.dirname(current_dir)
-    # 直接输出到 src-tauri/（扁平化，与 tauri.conf.json 同级）
     src_tauri_dir = os.path.join(os.path.dirname(project_dir), "src-tauri")
-    output_dir = src_tauri_dir
+
+    # 输出到子目录（整洁结构）
+    output_dir = os.path.join(src_tauri_dir, "hancast-sidecar")
     target_triple = get_target_triple()
 
     output_name = f"hancast-sidecar-{target_triple}"
@@ -70,36 +85,26 @@ def build(force=False):
             for dp, _, filenames in os.walk(output_dir)
             for f in filenames
         ) / (1024 * 1024)
-        print(f"Sidecar directory already exists: {output_dir} ({size_mb:.1f} MB)")
+        print(f"Sidecar already exists: {output_dir} ({size_mb:.1f} MB)")
         print("Use --force to rebuild")
         return
 
-    # 清理旧的 Nuitka 输出（仅删除本项目相关的文件，不删整个 src-tauri/）
-    _nuitka_patterns = [
-        f"hancast-sidecar-{target_triple}{ext}",
-        "python312.dll", "vcruntime140.dll", "vcruntime140_1.dll",
-        "libcrypto-3-x64.dll", "libffi-8.dll", "libssl-3-x64.dll",
-        "81d243bd2c585b0f4821__mypyc.pyd",
-        "hancast_sidecar", "certifi", "lxml", "charset_normalizer",
-    ]
-    for name in _nuitka_patterns:
-        p = os.path.join(output_dir, name)
-        if os.path.exists(p):
-            if os.path.isdir(p):
-                shutil.rmtree(p)
-            else:
-                os.remove(p)
-    # 清理所有 .dll 和 .pyd（Nuitka 输出的依赖）
-    for f in os.listdir(output_dir):
-        if f.endswith((".dll", ".pyd")):
-            os.remove(os.path.join(output_dir, f))
+    # 清理旧的构建产物
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
 
     # Nuitka 输出到临时目录
-    # 注意：Nuitka 的 --output-filename 只影响文件名，目录名根据入口文件名生成
-    # 入口是 main.py，所以输出目录是 main.dist
     nuitka_build_dir = os.path.join(project_dir, "build")
     nuitka_dist_dir = os.path.join(nuitka_build_dir, "main.dist")
-    nuitka_dist_data_dir = os.path.join(nuitka_build_dir, "main.dist", "hancast_sidecar")
+
+    # 查找图标文件（只支持 ICO 格式）
+    icon_path = None
+    src_tauri_icons = os.path.join(src_tauri_dir, "icons")
+    ico_path = os.path.join(src_tauri_icons, "icon.ico")
+
+    if os.path.exists(ico_path):
+        icon_path = ico_path
 
     args = [
         sys.executable, "-m", "nuitka",
@@ -112,13 +117,18 @@ def build(force=False):
         "--include-package=netifaces",
         "--nofollow-import-to=tkinter,unittest,test,distutils,setuptools,pip,_pytest,pytest",
         "--enable-plugin=anti-bloat",
-        "--user-package-configuration-file=types.nuitka-package.config.yml",
         "--no-progress",
         "--assume-yes-for-downloads",
-        entry_point,
     ]
 
-    print(f"Building sidecar with Nuitka (standalone): {output_name}")
+    # 添加图标参数（仅支持 ICO 格式）
+    if icon_path and sys.platform == "win32":
+        args.append(f"--windows-icon-from-ico={icon_path}")
+        print(f"Using icon: {icon_path}")
+
+    args.append(entry_point)
+
+    print(f"Building sidecar: {output_name}")
     print(f"Entry point: {entry_point}")
     print(f"Output dir:  {output_dir}")
     print(f"Target:      {target_triple}")
@@ -129,32 +139,23 @@ def build(force=False):
         print(f"\nBuild failed with exit code {result.returncode}")
         sys.exit(1)
 
-    # Nuitka standalone 输出到 main.dist 目录
-    # 将内容平铺到 src-tauri/（不创建子目录）
+    # 将 Nuitka 输出移动到子目录
     if os.path.exists(nuitka_dist_dir):
         for item in os.listdir(nuitka_dist_dir):
             src = os.path.join(nuitka_dist_dir, item)
             dst = os.path.join(output_dir, item)
-            # 目标已存在则先删除
-            if os.path.exists(dst):
-                if os.path.isdir(dst):
-                    shutil.rmtree(dst)
-                else:
-                    os.remove(dst)
             shutil.move(src, dst)
+
         # 清理 Nuitka 临时构建目录
         shutil.rmtree(nuitka_build_dir, ignore_errors=True)
 
-        # 删除 Nuitka 打包的 types/ 目录，避免覆盖 Python 内置 types 模块
-        # 内置 types 包含 MappingProxyType 等，Nuitka 打包的版本不完整会导致 ImportError
+        # 删除 types/ 目录（避免与 Python 内置模块冲突）
         types_dir = os.path.join(output_dir, "types")
         if os.path.isdir(types_dir):
             shutil.rmtree(types_dir)
             print("Removed types/ directory (conflicts with built-in types module)")
     else:
         print(f"\nWarning: Nuitka output not found at {nuitka_dist_dir}")
-        if os.path.exists(nuitka_build_dir):
-            print(f"Files in build dir: {os.listdir(nuitka_build_dir)}")
         sys.exit(1)
 
     # 统计输出
@@ -169,9 +170,9 @@ def build(force=False):
 
     print(f"\nBuild completed: {output_dir}")
     print(f"Total size: {total_size:.1f} MB ({file_count} files)")
-    print(f"\nTauri config needed:")
-    print(f'  externalBin: ["{output_name}"]')
-    print(f'  resources: ["*.dll", "*.pyd", "*.so"]')
+
+    # 复制图标
+    copy_icon(src_tauri_dir)
 
 
 if __name__ == "__main__":

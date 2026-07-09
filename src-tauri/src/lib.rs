@@ -478,7 +478,7 @@ pub fn run() {
             // Build tray icon
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("HanCast")
+                .tooltip(format!("HanCast v{}", env!("CARGO_PKG_VERSION")))
                 .menu(&menu)
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -490,8 +490,11 @@ pub fn run() {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
-                                window.hide().ok();
+                                // 窗口已可见 → 置顶并聚焦（不隐藏）
+                                window.set_focus().ok();
+                                window.unminimize().ok();
                             } else {
+                                // 窗口不可见 → 显示并置顶
                                 window.show().ok();
                                 window.set_focus().ok();
                             }

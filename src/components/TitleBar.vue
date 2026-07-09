@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { minimizeWindow, closeWindow } from '@/api/commands'
+import Modal from '@/components/Modal.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -10,6 +12,34 @@ const themeStore = useThemeStore()
 
 function goToSettings() {
   router.push('/settings')
+}
+
+// Close confirmation modal
+const showCloseModal = ref(false)
+const dontRemindAgain = ref(false)
+
+const CLOSE_MODAL_DISMISSED_KEY = 'hancast-close-modal-dismissed'
+
+function handleCloseClick() {
+  const dismissed = localStorage.getItem(CLOSE_MODAL_DISMISSED_KEY) === 'true'
+  if (dismissed) {
+    closeWindow()
+  } else {
+    showCloseModal.value = true
+  }
+}
+
+function confirmClose() {
+  if (dontRemindAgain.value) {
+    localStorage.setItem(CLOSE_MODAL_DISMISSED_KEY, 'true')
+  }
+  showCloseModal.value = false
+  closeWindow()
+}
+
+function cancelClose() {
+  showCloseModal.value = false
+  dontRemindAgain.value = false
 }
 </script>
 
@@ -44,13 +74,28 @@ function goToSettings() {
           <path d="M5 12h14" />
         </svg>
       </button>
-      <button class="title-bar__btn title-bar__btn--close" @click="closeWindow" :title="t('controller.close')">
+      <button class="title-bar__btn title-bar__btn--close" @click="handleCloseClick" :title="t('controller.close')">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12" />
         </svg>
       </button>
     </div>
   </header>
+
+  <!-- Close confirmation modal -->
+  <Modal size="mini" :visible="showCloseModal" :title="t('close.title')" @close="cancelClose">
+    <div class="close-modal-content">
+      <p class="close-modal-message">{{ t('close.message') }}</p>
+      <label class="close-modal-checkbox">
+        <input type="checkbox" v-model="dontRemindAgain" />
+        <span>{{ t('close.dontRemind') }}</span>
+      </label>
+    </div>
+    <template #actions>
+      <button class="btn-cancel" @click="cancelClose">{{ t('common.cancel') }}</button>
+      <button class="btn-confirm" @click="confirmClose">{{ t('common.confirm') }}</button>
+    </template>
+  </Modal>
 </template>
 
 <style scoped>
@@ -109,5 +154,38 @@ function goToSettings() {
 .title-bar__btn--close:hover {
   background: #EF4444;
   color: white;
+}
+
+/* Close modal local styles */
+.close-modal-content {
+  text-align: left;
+}
+
+.close-modal-message {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 6px;
+  white-space: pre-line;
+}
+
+.close-modal-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.close-modal-checkbox input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.close-modal-checkbox span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>

@@ -103,5 +103,8 @@
   "update.chooseSource": "Choose Download Source",
   "update.checking": "Checking...",
   "update.latestAlready": "Already up to date ✓",
-  "update.checkFailed": "Check failed, please try again later"
+  "update.checkFailed": "Check failed, please try again later",
+  "close.title": "Minimize to Taskbar",
+  "close.message": "HanCast will minimize to the taskbar.\nTo fully exit, right-click the taskbar icon.",
+  "close.dontRemind": "Don't remind me"
 }

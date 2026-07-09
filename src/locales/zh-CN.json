@@ -103,5 +103,8 @@
   "update.chooseSource": "选择下载源",
   "update.checking": "检查中...",
   "update.latestAlready": "已是最新版本 ✓",
-  "update.checkFailed": "检查失败，请稍后重试"
+  "update.checkFailed": "检查失败，请稍后重试",
+  "close.title": "最小化到任务栏",
+  "close.message": "HanCast 将最小化到右下角任务栏运行\n如需完全退出，请右键任务栏图标选择退出",
+  "close.dontRemind": "不再提醒"
 }

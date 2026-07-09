@@ -1,10 +1,14 @@
 <script setup lang="ts">
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   title?: string
   /** Show circular icon area above title */
   showIcon?: boolean
-}>()
+  /** Modal size variant */
+  size?: 'default' | 'small' | 'mini'
+}>(), {
+  size: 'default'
+})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -21,7 +25,7 @@ function onOverlay(e: MouseEvent) {
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="visible" class="modal-overlay" @click="onOverlay">
-        <div class="modal-box">
+        <div class="modal-box" :class="{ 'modal-box--small': size === 'small', 'modal-box--mini': size === 'mini' }">
 
           <!-- Optional circular icon area -->
           <div v-if="showIcon" class="modal-icon-area">
@@ -73,6 +77,63 @@ function onOverlay(e: MouseEvent) {
   min-width: 280px;
   max-width: 360px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+/* Small variant */
+.modal-box--small {
+  min-width: 200px;
+  max-width: 260px;
+  padding: var(--sp-md);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.modal-box--small .modal-title {
+  font-size: 14px;
+  margin-bottom: var(--sp-sm);
+}
+
+.modal-box--small .modal-body {
+  font-size: 12px;
+  margin-bottom: var(--sp-md);
+}
+
+.modal-box--small .modal-actions button {
+  padding: var(--sp-xs) var(--sp-sm);
+  font-size: 12px;
+}
+
+/* Mini variant */
+.modal-box--mini {
+  min-width: 220px;
+  max-width: 280px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.modal-box--mini .modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  margin-bottom: 4px;
+}
+
+.modal-box--mini .modal-body {
+  font-size: 12px;
+  text-align: left;
+  margin-bottom: 6px;
+}
+
+.modal-box--mini .modal-actions {
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.modal-box--mini .modal-actions button {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 4px;
 }
 
 /* ── Circular icon area ── */

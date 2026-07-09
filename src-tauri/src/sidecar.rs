@@ -42,7 +42,7 @@ impl SidecarManager {
             #[cfg(not(debug_assertions))]
             {
                 // Nuitka standalone 需要工作目录为依赖所在目录
-                // 所有依赖文件（DLL、pyd、Python 模块）都在 resource_dir 根目录
+                // 依赖文件平铺在 resource_dir 根目录（*.dll, *.pyd, hancast_sidecar/ 等）
                 let resource_dir = app
                     .path()
                     .resource_dir()

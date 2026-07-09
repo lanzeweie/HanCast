@@ -367,14 +367,16 @@ if ($Portable) {
     # 复制主程序
     Copy-Item "$releaseDir\HanCast.exe" -Destination "$portableDir\HanCast.exe" -Force
 
-    # 复制 Sidecar（从子目录复制到根目录）
+    # 复制 Sidecar exe（从子目录）
     Copy-Item "$sidecarDir\hancast-sidecar-*.exe" -Destination $portableDir -Force
-    Copy-Item "$sidecarDir\*.dll" -Destination $portableDir -Force
-    Copy-Item "$sidecarDir\*.pyd" -Destination $portableDir -Force
-    Copy-Item "$sidecarDir\hancast_sidecar" -Destination "$portableDir\hancast_sidecar" -Recurse -Force
-    Copy-Item "$sidecarDir\certifi" -Destination "$portableDir\certifi" -Recurse -Force
-    Copy-Item "$sidecarDir\charset_normalizer" -Destination "$portableDir\charset_normalizer" -Recurse -Force
-    Copy-Item "$sidecarDir\lxml" -Destination "$portableDir\lxml" -Recurse -Force
+    # 复制依赖（从 src-tauri 根目录，与 exe 同级）
+    $srcTauriRoot = "src-tauri"
+    Copy-Item "$srcTauriRoot\*.dll" -Destination $portableDir -Force
+    Copy-Item "$srcTauriRoot\*.pyd" -Destination $portableDir -Force
+    Copy-Item "$srcTauriRoot\hancast_sidecar" -Destination "$portableDir\hancast_sidecar" -Recurse -Force
+    Copy-Item "$srcTauriRoot\certifi" -Destination "$portableDir\certifi" -Recurse -Force
+    Copy-Item "$srcTauriRoot\charset_normalizer" -Destination "$portableDir\charset_normalizer" -Recurse -Force
+    Copy-Item "$srcTauriRoot\lxml" -Destination "$portableDir\lxml" -Recurse -Force
 
     # 复制 MPV
     Copy-Item "$releaseDir\mpv" -Destination "$portableDir\mpv" -Recurse -Force

@@ -53,9 +53,9 @@ def _launch_main_if_standalone():
 
     logger.info("Standalone mode detected (user double-clicked), launching main program...")
 
-    # 查找主程序：在 sidecar 同级目录
+    # 查找主程序：sidecar 的 current_dir 已设为资源根目录
     if getattr(sys, 'frozen', False):
-        exe_dir = os.path.dirname(sys.executable)
+        exe_dir = os.getcwd()
     else:
         exe_dir = os.path.dirname(os.path.abspath(__file__))
 

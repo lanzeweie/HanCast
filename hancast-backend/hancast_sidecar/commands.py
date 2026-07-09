@@ -35,19 +35,12 @@ def find_mpv_path() -> str:
     if mpv_path and os.path.exists(mpv_path):
         return mpv_path
 
-    # 2. 检查项目目录下的 mpv
+    # 2. 确定基础路径
     if getattr(sys, 'frozen', False):
-        # Nuitka / Tauri 打包后的路径
-        exe_dir = os.path.dirname(sys.executable)
-        resources_dir = os.path.join(exe_dir, "resources")
-        if os.path.isdir(resources_dir):
-            base_path = resources_dir
-        else:
-            base_path = exe_dir
+        # 打包后：sidecar 的 current_dir 已设为资源根目录
+        base_path = os.getcwd()
     else:
-        # 开发环境路径
-        # file: hancast-backend/hancast_sidecar/commands.py
-        # 向上 4 级: hancast_sidecar → hancast-backend → 项目根
+        # 开发环境：向上 4 级到项目根
         base_path = os.path.dirname(
             os.path.dirname(
                 os.path.dirname(

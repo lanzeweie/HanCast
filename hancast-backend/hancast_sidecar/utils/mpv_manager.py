@@ -99,14 +99,8 @@ class MpvManager:
             └── hancast-backend/hancast_sidecar/utils/mpv_manager.py
         """
         if getattr(sys, "frozen", False):
-            # Nuitka onefile: sys.executable 是临时解压目录
-            # Nuitka standalone / Tauri sidecar: sys.executable 是安装目录
-            exe_dir = os.path.dirname(sys.executable)
-            # 优先检查 Tauri resources 目录
-            resources_dir = os.path.join(exe_dir, "resources")
-            if os.path.isdir(resources_dir):
-                return resources_dir
-            return exe_dir
+            # sidecar 的 current_dir 已设为资源根目录（含 mpv/、*.dll 等）
+            return os.getcwd()
         else:
             # file: hancast-backend/hancast_sidecar/utils/mpv_manager.py
             # 向上 4 级: utils → hancast_sidecar → hancast-backend → 项目根

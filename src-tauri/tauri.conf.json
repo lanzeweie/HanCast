@@ -45,12 +45,12 @@
     "resources": [
       "mpv/*",
       "mpv/portable_config/**/*",
-      "hancast-sidecar/*.dll",
-      "hancast-sidecar/*.pyd",
-      "hancast-sidecar/hancast_sidecar/**/*",
-      "hancast-sidecar/certifi/**/*",
-      "hancast-sidecar/lxml/**/*",
-      "hancast-sidecar/charset_normalizer/**/*"
+      "*.dll",
+      "*.pyd",
+      "hancast_sidecar/**/*",
+      "certifi/**/*",
+      "lxml/**/*",
+      "charset_normalizer/**/*"
     ],
     "windows": {
       "nsis": {

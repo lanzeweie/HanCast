@@ -53,6 +53,8 @@ def build(force=False):
     """
     构建 Sidecar 到 src-tauri/hancast-sidecar/ 子目录
 
+    Tauri 打包时会把 exe 和依赖分别复制到资源根目录。
+
     输出结构:
         src-tauri/hancast-sidecar/
         ├── hancast-sidecar-{triple}.exe   ← 入口（externalBin）
@@ -67,7 +69,6 @@ def build(force=False):
     project_dir = os.path.dirname(current_dir)
     src_tauri_dir = os.path.join(os.path.dirname(project_dir), "src-tauri")
 
-    # 输出到子目录（整洁结构）
     output_dir = os.path.join(src_tauri_dir, "hancast-sidecar")
     target_triple = get_target_triple()
 

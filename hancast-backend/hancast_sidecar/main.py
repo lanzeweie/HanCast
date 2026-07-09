@@ -5,6 +5,9 @@ Tauri Sidecar 入口 - 通过 stdin/stdout JSON 与 Rust 通信
   请求: {"id": <int>, "cmd": <string>, "params": <object>}
   响应: {"id": <int>, "success": <bool>, "data": <any>, "error": <string>}
   事件: {"event": <string>, "data": <object>}
+
+握手协议:
+  启动完成后发送 {"event": "ready"} 通知 Rust 端可以开始通信
 """
 
 import sys
@@ -26,6 +29,12 @@ setup_logger("hancast", level=logging.INFO)
 logger = get_logger("hancast.sidecar")
 
 
+def _emit_event(event_name: str, data: dict = None):
+    """发送事件到 Rust 端"""
+    event = {"event": event_name, "data": data or {}}
+    print(json.dumps(event, ensure_ascii=False), flush=True)
+
+
 def main():
     """Sidecar 主循环"""
     handler = CommandHandler()
@@ -40,6 +49,10 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
 
     logger.info("HanCast Sidecar started")
+
+    # 握手：通知 Rust 端初始化完成
+    _emit_event("ready")
+    logger.info("Sent ready event to Rust")
 
     for line in sys.stdin:
         line = line.strip()

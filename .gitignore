@@ -89,4 +89,4 @@ scripts/claude-knowledge.bat
 scripts/claude-dashboard.bat
 
 # 微软打包
-src-tauri/MSIX
+MSIX/

@@ -279,6 +279,53 @@ cargo tauri build
 cd hancast-backend && python scripts/build_sidecar.py
 ```
 
+### 构建产物路径
+
+| 类型 | 路径 | 说明 |
+|------|------|------|
+| 绿色版（便携版） | `src-tauri/target/release/dist-portable/` | 解压即运行，无需安装 |
+| 安装包 | `src-tauri/target/release/bundle/nsis/` | 安装后目录结构与绿色版一致 |
+
+**重要**：绿色版和安装后的运行目录结构完全一致，只是分发方式不同。绿色版是打包后的完整运行目录，不是临时构建目录。
+
+### 运行目录结构
+
+两种方式的运行目录结构相同：
+
+```
+运行目录/
+├── HanCast.exe                         # 主程序（Tauri + Rust）
+├── hancast-sidecar-*.exe               # Python 后端（DLNA/SSDP/媒体解析）
+├── python312.dll + *.pyd               # Python 运行时 + 标准库
+├── libcrypto/libssl/libffi/vcruntime   # 系统依赖
+│
+├── hancast_sidecar/xml/                # UPnP 描述文件（DLNA 必需）
+│   ├── Description.xml
+│   ├── AVTransport.xml
+│   ├── ConnectionManager.xml
+│   ├── RenderingControl.xml
+│   └── SinkProtocolInfo.csv
+│
+├── lxml/                               # XML 解析（DLNA 协议依赖）
+├── charset_normalizer/                 # 字符编码
+├── certifi/                            # CA 证书
+│
+└── mpv/                                # MPV 播放器（捆绑）
+    ├── mpv.exe
+    └── portable_config/
+        ├── mpv.conf
+        ├── scripts/                    # 弹幕、OSD 等插件
+        ├── shaders/                    # 视频着色器（Anime4K）
+        ├── fonts/                      # 字体文件
+        └── watch_later/                # 播放进度记忆
+```
+
+**核心组件**：
+- `HanCast.exe`：Tauri 前端 + Rust 桥接层
+- `hancast-sidecar-*.exe`：Python 后端（DLNA/SSDP/媒体解析）
+- `mpv/`：捆绑的 MPV 播放器
+- `hancast_sidecar/xml/`：UPnP 协议描述文件
+
 ### 版本管理
 
 项目采用 **单一真相源（SSOT）** 策略，以 `package.json` 的 `version` 字段为唯一版本源头。

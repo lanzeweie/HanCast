@@ -59,6 +59,7 @@ class MPVRenderer(Renderer):
         self.ipc_running = False
         self.ipc_once_connected = False
         self.command_lock = threading.Lock()
+        self._replacing_file = False  # loadfile replace 期间抑制 end-file 状态推送
 
     def set_media_stop(self):
         self.send_command(['stop'])
@@ -83,6 +84,9 @@ class MPVRenderer(Renderer):
 
     def set_media_url(self, url, start="0"):
         """ data : string """
+        # 标记正在替换文件，抑制 end-file 事件中的 set_state_stop()
+        # 防止 DLNA 控制器收到 STOPPED 后重发 SetAVTransportURI 导致播放归零
+        self._replacing_file = True
         if start and start != "0":
             self.send_command(['loadfile', url, 'replace', f'start={start}'])
         else:
@@ -187,7 +191,13 @@ class MPVRenderer(Renderer):
             logger.info(res)
             if res['event'] == 'end-file':
                 self.playing = False
-                if 'reason' not in res:
+                if self._replacing_file:
+                    # loadfile replace 触发的 end-file 是正常文件切换，
+                    # 不应设置 STOPPED 状态，否则 DLNA 控制器收到 STOPPED
+                    # 事件后可能重发 SetAVTransportURI，导致播放归零
+                    logger.debug("end-file during file replacement, skip set_state_stop")
+                    self._replacing_file = False
+                elif 'reason' not in res:
                     self.set_state_stop()
                 elif res['reason'] == 'error':
                     self.set_state_transport_error()
@@ -197,6 +207,7 @@ class MPVRenderer(Renderer):
                     self.set_state_stop()
             elif res['event'] == 'start-file':
                 self.playing = True
+                self._replacing_file = False
             elif res['event'] == 'seek':
                 pass
             elif res['event'] == 'idle':

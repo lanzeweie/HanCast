@@ -5,7 +5,11 @@
 <h1 align="center">HanCast</h1>
 
 <p align="center">
-  跨平台投屏应用 — 将媒体投屏到局域网设备，或从手机投屏到电脑
+  <strong>跨平台无线投屏与接收端应用</strong>
+</p>
+
+<p align="center">
+  开源跨平台投屏工具 — 拖拽文件到电视，手机投屏到电脑，一步到位。
 </p>
 
 <p align="center">
@@ -15,54 +19,113 @@
   <img src="https://img.shields.io/badge/License-GPL--3.0-green" alt="License">
 </p>
 
+![HanCast 亮色 / 暗色主题](docs/images/themes-light-dark.png)
+
 ---
 
-## 核心亮点
+## 功能特性
 
-### 多源投屏，一键直达
+### 发送投屏
 
-支持多种媒体源，拖拽或粘贴即可投屏到电视、投影仪等 DLNA 设备：
+拖拽文件或粘贴链接，选择设备，一键投屏。
 
-| 媒体源 | 说明 | 示例 |
+| 媒体源 | 操作 | 示例 |
 |--------|------|------|
-| **本地文件** | 拖拽视频/音频/图片到窗口，自动解析投屏 | `.mp4` `.mp3` `.jpg` |
-| **网络链接** | 粘贴 HTTP/HTTPS 直链，直接投屏 | `https://example.com/video.mp4` |
+| **本地文件** | 拖拽视频 / 音频 / 图片到窗口 | `.mp4` `.mp3` `.jpg` |
+| **网络链接** | 粘贴 HTTP / HTTPS 直链 | `https://example.com/video.mp4` |
 | **B站视频** | 粘贴 B站链接，自动解析取流 | `bilibili.com/video/BV...` |
-| **剪贴板** | 从剪贴板粘贴媒体链接，一键投屏 | 复制链接后直接粘贴 |
-
-### 投屏控制
-
-- **播放控制** — 暂停 / 恢复 / 进度跳转 / 音量调节 / 隔音
-- **多格式支持** — 视频、音频、图片均可投屏
-- **多设备** — 支持同时投屏到多个设备
+| **剪贴板** | 复制链接后直接粘贴 | — |
 
 ### 接收投屏
 
-电脑作为 DLNA Renderer，接收手机/平板的投屏：
+![接收投屏预览](docs/images/cast-preview.png)
 
-- **DLNA 接收** — 手机端使用支持 DLNA 的 App（如爱奇艺、B站等）投屏到电脑
-- **MPV 播放** — 底层使用 MPV 播放器，支持几乎所有媒体格式
-- **自动启动** — 接收到投屏请求时自动启动 MPV 播放
+电脑化身 DLNA 接收端。手机上爱奇艺、B站等 App 的投屏按钮，点一下就能在电脑大屏上播放。
 
+- 底层搭载 MPV 播放器，几乎支持所有媒体格式
+- 接收到投屏请求时自动启动播放，能够记住上次窗口位置跟大小
+
+### 投屏控制
+
+![投屏控制面板](docs/images/cast-control.png)
+
+投屏启动后，点击设备卡片打开控制面板：
+
+- 实时预览媒体封面与标题
+- 音量调节+进度调节
+- 一键停止投屏
+#### 多设备投屏控制
+
+![投屏控制](docs/images/back.png)
+
+- 可以同时给不同设备投屏，并且保持控制器状态  
+
+### 投屏安全
+
+![新设备投屏确认弹窗](docs/images/cast-confirm.png)
+
+- **投屏确认** — 未知设备投屏时弹窗确认，防止误投
+- **超时自动拒绝** — 15 秒内未操作则自动拒绝（时长可配置）
+- **信任管理** — 支持「允许一次」或「始终允许」，信任设备下次不再询问
+
+## 下载应用
+
+  | 平台 | 链接 |
+  |------|------|
+  [GitHub Releases](https://github.com/lanzeweie/HanCast/releases/latest) | [https://github.com/lanzeweie/HanCast/releases/latest](https://github.com/lanzeweie/HanCast/releases/latest)
+  [Gitee Releases](https://gitee.com/buxiangqumingzi/han-cast/releases/latest) | [https://gitee.com/buxiangqumingzi/han-cast/releases/latest](https://gitee.com/buxiangqumingzi/han-cast/releases/latest)
 ---
 
-## 设备管理
+## 开发者快速开始
 
-- **自动发现** — 启动后自动扫描局域网 DLNA 设备（SSDP 协议）
-- **手动刷新** — 支持手动刷新设备列表
-- **设备重命名** — 为设备设置自定义名称（本地保存）
-- **默认设备** — 设置默认投屏设备，下次启动自动选中
-- **设备移除** — 从列表中移除不需要的设备
-- **投屏确认** — 未知设备投屏时弹窗确认，支持信任/黑名单管理
+### 前置依赖
 
----
+| 依赖 | 版本 | 说明 |
+|------|------|------|
+| [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
+| [Rust](https://rustup.rs/) | 最新 stable | Tauri 构建 |
+| [Python](https://python.org/) | >= 3.11 | 后端运行 |
+| [uv](https://docs.astral.sh/uv/) | 最新 | Python 包管理（推荐） |
+| [MPV](https://mpv.io/) | 任意 | 接收投屏需要，发送投屏可选 |
 
-## 界面与体验
+### 安装与运行
 
-- **自定义标题栏** — 无边框窗口 + 自定义最小化/关闭按钮
-- **亮色/暗色主题** — 跟随系统主题自动切换
-- **多语言** — 支持中文 / English
-- **系统托盘** — 关闭窗口后最小化到托盘，后台运行
+```bash
+# 克隆仓库
+git clone https://github.com/your-username/HanCast.git
+cd HanCast
+
+# 安装依赖
+npm install
+cd hancast-backend && uv sync && cd ..
+
+# 启动开发模式（前端 + Rust + Python 一键启动）
+npm run tauri dev
+```
+
+**仅前端开发**（浏览器 mock 模式，无需 Python / Rust）：
+
+```bash
+npm run dev
+# 浏览器访问 http://localhost:1420
+```
+
+**仅 Python 后端调试**：
+
+```bash
+cd hancast-backend
+uv run python -m hancast_sidecar.main
+```
+
+### 生产构建
+
+```bash
+npm run tauri build
+```
+
+构建产物位于 `src-tauri/target/release/bundle/`（MSI / NSIS 安装包）。
+
+> ⚠️ 直接运行 `hancast.exe` 会闪退 — 它依赖 Python Sidecar。开发测试请用 `npm run tauri dev`。
 
 ---
 
@@ -88,70 +151,7 @@
 | 后端 | Python 3.11+ (Sidecar) | DLNA 协议、SSDP 发现、媒体服务 |
 | 播放器 | MPV (外部依赖) | 媒体播放、IPC 控制 |
 
-**进程通信**: 前端通过 Tauri `invoke()` 调用 Rust 命令，Rust 通过 stdin/stdout JSON 与 Python Sidecar 通信。
-
----
-
-## 快速开始
-
-### 前置依赖
-
-| 依赖 | 版本 | 说明 |
-|------|------|------|
-| [Node.js](https://nodejs.org/) | >= 18 | 前端构建 |
-| [Rust](https://rustup.rs/) | 最新 stable | Tauri 构建 |
-| [Python](https://python.org/) | >= 3.11 | 后端运行 |
-| [uv](https://docs.astral.sh/uv/) | 最新 | Python 包管理（推荐） |
-| [MPV](https://mpv.io/) | 任意 | 接收投屏需要，发送投屏可选 |
-
-### 安装与运行
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/your-username/HanCast.git
-cd HanCast
-
-# 2. 安装前端依赖
-npm install
-
-# 3. 安装 Python 后端依赖
-cd hancast-backend
-uv sync
-cd ..
-
-# 4. 启动开发模式（前端 + Rust + Python 一键启动）
-npm run tauri dev
-```
-
-### 仅前端开发
-
-不需要 Python/Rust 环境，使用浏览器 mock 数据开发 UI：
-
-```bash
-npm run dev
-# 浏览器访问 http://localhost:1420
-```
-
-### 仅 Python 后端调试
-
-独立运行 Python Sidecar，用于调试 DLNA/SSDP 逻辑：
-
-```bash
-cd hancast-backend
-uv run python -m hancast_sidecar.main
-```
-
-### 生产构建
-
-```bash
-npm run tauri build
-```
-
-构建产物位于 `src-tauri/target/release/bundle/`：
-- **MSI 安装包** — Windows 静默安装
-- **NSIS 安装包** — Windows 交互式安装
-
-> **注意**: 直接运行 `hancast.exe` 会闪退，因为它依赖 Python Sidecar。开发测试请用 `npm run tauri dev`。
+前端通过 Tauri `invoke()` 调用 Rust 命令，Rust 通过 stdin/stdout JSON 与 Python Sidecar 通信。
 
 ---
 
@@ -176,7 +176,7 @@ HanCast/
 │   │   └── sidecar.rs          # SidecarManager（Rust ↔ Python）
 │   └── Cargo.toml
 │
-├── hancast-backend/             # Python 后端
+├── hancast-backend/            # Python 后端
 │   └── hancast_sidecar/
 │       ├── main.py             # Sidecar 入口（stdin/stdout JSON 循环）
 │       ├── commands.py         # 命令路由（20 个命令）
@@ -197,7 +197,7 @@ HanCast/
 
 ---
 
-## 设计文档
+## 开发文档
 
 | 文档 | 说明 |
 |------|------|
@@ -213,8 +213,6 @@ HanCast/
 [GPL-3.0](LICENSE) © 2024-2026 [lanzeweie](https://github.com/lanzeweie)
 
 基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 二次开发，继承原项目协议。
-
----
 
 ## 致谢
 

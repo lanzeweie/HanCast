@@ -141,6 +141,10 @@ class DLNAProtocol:
         self._device_guard = None
         self._caller_ip: Optional[str] = None
 
+        # Seek 防抖：记录 SetAVTransportURI 的时间戳，
+        # 用于忽略投屏控制器在播放初期发送的冗余 Seek(0) 命令
+        self._last_set_uri_time: float = 0
+
         self.init_services()  # create services handle function from xml file
         self.init_state()  # set default value
 
@@ -666,6 +670,7 @@ class DLNAProtocol:
 
         uri = data['CurrentURI'].value
         logger.info(f"SetAVTransportURI: {uri}")
+        self._last_set_uri_time = time.time()
         self.set_state_url(uri)
         title = "HanCast"
         try:
@@ -714,6 +719,17 @@ class DLNAProtocol:
     def AVTransport_Seek(self, data):
         target = data['Target']
         logger.info(f"Seek: {target.value}")
+
+        # ── Seek(0) 防抖 ──
+        # 乐播/抖音等投屏控制器在 Play 之后会发送 Seek(0:00:00) "确认从头播放"，
+        # 但此时媒体已经开始播放，Seek(0) 会把进度拉回起点。
+        # 如果 Seek 目标是 00:00:00 且距离 SetAVTransportURI 不超过 10 秒，则忽略。
+        elapsed = time.time() - self._last_set_uri_time
+        if target.value in ('0:00:00', '00:00:00') and elapsed < 10:
+            logger.info(f"Ignore redundant Seek(0) from controller "
+                        f"({elapsed:.1f}s after SetAVTransportURI)")
+            return {}
+
         if self._renderer:
             self._renderer.set_media_position(target.value)
         self.set_state('RelativeTimePosition', target.value)

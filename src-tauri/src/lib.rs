@@ -19,12 +19,6 @@ struct WindowConfig {
     width: f64,
     /// 窗口高度
     height: f64,
-    /// 窗口 X 坐标
-    x: f64,
-    /// 窗口 Y 坐标
-    y: f64,
-    /// 是否最大化
-    maximized: bool,
 }
 
 impl Default for WindowConfig {
@@ -32,9 +26,6 @@ impl Default for WindowConfig {
         Self {
             width: 434.0,
             height: 634.0,
-            x: 0.0,
-            y: 0.0,
-            maximized: false,
         }
     }
 }
@@ -470,6 +461,55 @@ async fn set_mpv_path(
         .await
 }
 
+// ── Export Logs ──
+
+#[tauri::command]
+async fn export_logs(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // 获取日志文件路径（跨平台，与 Python 后端 logger.py 一致）
+    let log_path = if cfg!(target_os = "windows") {
+        // Windows: %APPDATA%/HanCast/logs/hancast.log
+        let app_data = std::env::var("APPDATA")
+            .map_err(|_| "无法获取 APPDATA 目录".to_string())?;
+        PathBuf::from(app_data).join("HanCast").join("logs").join("hancast.log")
+    } else if cfg!(target_os = "macos") {
+        // macOS: ~/Library/Application Support/HanCast/logs/hancast.log
+        let home = std::env::var("HOME")
+            .map_err(|_| "无法获取 HOME 目录".to_string())?;
+        PathBuf::from(home).join("Library").join("Application Support").join("HanCast").join("logs").join("hancast.log")
+    } else {
+        // Linux: ~/.config/hancast/logs/hancast.log
+        let home = std::env::var("HOME")
+            .map_err(|_| "无法获取 HOME 目录".to_string())?;
+        PathBuf::from(home).join(".config").join("hancast").join("logs").join("hancast.log")
+    };
+
+    if !log_path.exists() {
+        return Err("日志文件不存在".to_string());
+    }
+
+    // 打开文件保存对话框
+    let file_path = app
+        .dialog()
+        .file()
+        .set_title("导出日志")
+        .set_file_name("hancast.log")
+        .add_filter("日志文件", &["log"])
+        .add_filter("所有文件", &["*"])
+        .blocking_save_file();
+
+    match file_path {
+        Some(path) => {
+            let path_buf = path.into_path().map_err(|e| format!("Invalid path: {e}"))?;
+            std::fs::copy(&log_path, &path_buf)
+                .map_err(|e| format!("复制日志文件失败: {e}"))?;
+            Ok(true)
+        }
+        None => Ok(false), // 用户取消了对话框
+    }
+}
+
 /// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
 const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
@@ -553,51 +593,46 @@ pub fn run() {
 
             let window_config_state = WindowConfigState::load(&config_path);
 
-            // 恢复窗口尺寸和位置
+            // 开发模式下自动打开 DevTools
+            #[cfg(debug_assertions)]
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
+            }
+
+            // 恢复窗口尺寸（窗口默认隐藏，设置好后再显示，避免闪烁）
             if let Some(window) = app.get_webview_window("main") {
                 let config = window_config_state.get_config();
 
+                // 最小尺寸保护（防止配置丢失时窗口变成 1x1）
+                const MIN_WIDTH: u32 = 346;
+                const MIN_HEIGHT: u32 = 472;
+                let width = (config.width as u32).max(MIN_WIDTH);
+                let height = (config.height as u32).max(MIN_HEIGHT);
+
                 // 设置窗口尺寸
                 let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                    width: config.width as u32,
-                    height: config.height as u32,
+                    width,
+                    height,
                 }));
-
-                // 设置窗口位置（仅当位置有效时）
-                if config.x > 0.0 && config.y > 0.0 {
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                        x: config.x as i32,
-                        y: config.y as i32,
-                    }));
-                }
-
-                // 恢复最大化状态
-                if config.maximized {
-                    let _ = window.maximize();
-                }
 
                 // 禁用最大化（阻止双击标题栏最大化）
                 window.set_maximizable(false).ok();
 
-                // 监听窗口事件
+                // 监听窗口事件（只保存尺寸，不保存位置）
                 let window_config_clone = window_config_state.clone();
                 window.on_window_event(move |event| {
-                    match event {
-                        tauri::WindowEvent::Resized(size) => {
-                            let mut config = window_config_clone.get_config();
-                            config.width = size.width as f64;
-                            config.height = size.height as f64;
-                            window_config_clone.update_and_save(config);
-                        }
-                        tauri::WindowEvent::Moved(position) => {
-                            let mut config = window_config_clone.get_config();
-                            config.x = position.x as f64;
-                            config.y = position.y as f64;
-                            window_config_clone.update_and_save(config);
-                        }
-                        _ => {}
+                    if let tauri::WindowEvent::Resized(size) = event {
+                        let mut config = window_config_clone.get_config();
+                        // 保存时也强制最小尺寸保护
+                        config.width = (size.width as f64).max(346.0);
+                        config.height = (size.height as f64).max(472.0);
+                        window_config_clone.update_and_save(config);
                     }
                 });
+
+                // 显示窗口
+                let _ = window.show();
+                let _ = window.set_focus();
             }
 
             app.manage(window_config_state);
@@ -811,6 +846,7 @@ pub fn run() {
             save_guard_settings,
             check_mpv,
             set_mpv_path,
+            export_logs,
             get_autostart,
             set_autostart,
         ])

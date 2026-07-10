@@ -53,6 +53,8 @@
   "settings.repository": "GitHub Repository",
   "settings.qqGroup": "QQ Group (821473246)",
   "settings.license": "Open Source Licenses",
+  "settings.exportLogs": "Export Logs",
+  "common.saveAs": "Save As",
   "cast.idle": "Idle",
   "cast.connecting": "Connecting...",
   "cast.playing": "Playing",

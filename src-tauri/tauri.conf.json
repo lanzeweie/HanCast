@@ -17,14 +17,15 @@
         "title": "HanCast",
         "width": 434,
         "height": 634,
-        "minWidth": 360,
-        "minHeight": 480,
+        "minWidth": 346,
+        "minHeight": 472,
         "maxWidth": 800,
         "maxHeight": 900,
         "resizable": true,
         "decorations": false,
         "transparent": true,
         "center": true,
+        "visible": false,
         "dragDropEnabled": true,
         "devtools": false
       }

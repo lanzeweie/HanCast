@@ -53,6 +53,8 @@
   "settings.repository": "GitHub 仓库",
   "settings.qqGroup": "QQ 交流群 (821473246)",
   "settings.license": "开源许可",
+  "settings.exportLogs": "导出日志",
+  "common.saveAs": "另存为",
   "cast.idle": "空闲",
   "cast.connecting": "连接中...",
   "cast.playing": "播放中",

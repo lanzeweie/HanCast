@@ -186,6 +186,8 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
       } as T
     case 'ignore_update_version':
       return true as T
+    case 'export_logs':
+      return true as T
     default:
       return {} as T
   }
@@ -367,6 +369,13 @@ export async function saveGuardSettings(settings: {
 }): Promise<void> {
   const invoke = await initInvoke()
   await invoke('save_guard_settings', { settings })
+}
+
+// ── Export Logs ──
+
+export async function exportLogs(): Promise<boolean> {
+  const invoke = await initInvoke()
+  return invoke<boolean>('export_logs')
 }
 
 // ── Update Check ──

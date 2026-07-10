@@ -30,10 +30,13 @@ class MpvManager:
 
     def check(self) -> MpvInfo:
         """检查 MPV 是否可用"""
+        logger.info(f"[MPV Manager] Checking MPV, base_path: {self.base_path}, mpv_dir: {self.mpv_dir}")
+
         # 1. 配置中保存的路径
         mpv_cfg = self.config.get_mpv()
         if mpv_cfg.get("path"):
             if self._validate_mpv(mpv_cfg["path"]):
+                logger.info(f"[MPV Manager] Found configured MPV: {mpv_cfg['path']}")
                 return MpvInfo(
                     status=MpvStatus.READY,
                     path=mpv_cfg["path"],
@@ -45,6 +48,7 @@ class MpvManager:
         # 2. 程序目录 mpv/
         local = self._find_in_program_dir()
         if local:
+            logger.info(f"[MPV Manager] Found bundled MPV: {local}")
             info = MpvInfo(status=MpvStatus.READY, path=local, source="bundled")
             self._save_to_config(info)
             return info
@@ -52,8 +56,12 @@ class MpvManager:
         # 3. 系统 PATH
         system = self._find_in_path()
         if system:
+            logger.info(f"[MPV Manager] Found system MPV: {system}")
             return MpvInfo(status=MpvStatus.READY, path=system, source="system")
 
+        logger.warning(f"[MPV Manager] MPV not found! mpv_dir exists: {os.path.isdir(self.mpv_dir)}")
+        if os.path.isdir(self.mpv_dir):
+            logger.info(f"[MPV Manager] Contents of mpv_dir: {os.listdir(self.mpv_dir)}")
         return MpvInfo(status=MpvStatus.NOT_FOUND)
 
     def set_path(self, path: str) -> MpvInfo:
@@ -89,28 +97,40 @@ class MpvManager:
 
         Tauri 打包后目录结构:
             {install_dir}/
-            ├── hancast-sidecar.exe   ← sys.executable
-            └── resources/
-                └── mpv/mpv.exe
+            ├── hancast-sidecar.exe
+            ├── HanCast.exe
+            ├── mpv/mpv.exe
+            ├── hancast_sidecar/
+            └── *.dll, *.pyd
 
         开发环境:
             项目根/
             ├── mpv/mpv.exe
             └── hancast-backend/hancast_sidecar/utils/mpv_manager.py
         """
-        if getattr(sys, "frozen", False):
-            # sidecar 的 current_dir 已设为资源根目录（含 mpv/、*.dll 等）
-            return os.getcwd()
-        else:
-            # file: hancast-backend/hancast_sidecar/utils/mpv_manager.py
-            # 向上 4 级: utils → hancast_sidecar → hancast-backend → 项目根
-            return os.path.dirname(
+        # 尝试多个可能的路径
+        candidates = [
+            os.getcwd(),  # Rust 设置的 current_dir
+            os.path.dirname(sys.executable),  # sidecar exe 所在目录
+        ]
+
+        for path in candidates:
+            mpv_path = os.path.join(path, "mpv", "mpv.exe")
+            logger.info(f"[MPV Manager] Checking: {mpv_path}")
+            if os.path.isfile(mpv_path):
+                logger.info(f"[MPV Manager] Found mpv at: {path}")
+                return path
+
+        # 开发环境：向上 4 级
+        dev_path = os.path.dirname(
+            os.path.dirname(
                 os.path.dirname(
-                    os.path.dirname(
-                        os.path.dirname(os.path.abspath(__file__))
-                    )
+                    os.path.dirname(os.path.abspath(__file__))
                 )
             )
+        )
+        logger.info(f"[MPV Manager] Using dev_path: {dev_path}")
+        return dev_path
 
     def _find_in_program_dir(self) -> Optional[str]:
         """在程序目录 mpv/ 中查找 mpv 可执行文件"""

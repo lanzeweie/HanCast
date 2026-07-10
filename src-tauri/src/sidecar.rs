@@ -5,6 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 use tauri::async_runtime::Receiver;
 use tauri::{AppHandle, Emitter};
+#[cfg(not(debug_assertions))]
+use tauri::Manager;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{oneshot, Mutex};
@@ -48,11 +50,13 @@ impl SidecarManager {
                     .resource_dir()
                     .map_err(|e| format!("Failed to get resource dir: {e}"))?;
 
+                eprintln!("[Sidecar] resource_dir: {:?}", resource_dir);
+
                 app.shell()
                     .sidecar("hancast-sidecar")
                     .map_err(|e| format!("Sidecar binary not found: {e}"))?
                     .env("PYTHONIOENCODING", "utf-8")
-                    .current_dir(resource_dir)
+                    .current_dir(&resource_dir)
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar: {e}"))?
             }

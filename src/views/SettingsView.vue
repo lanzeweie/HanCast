@@ -8,6 +8,7 @@ import { useGuardStore } from '@/stores/guard'
 import { useUpdateStore } from '@/stores/update'
 import GuardDeviceList from '@/components/GuardDeviceList.vue'
 import CustomSelect from '@/components/CustomSelect.vue'
+import { exportLogs } from '@/api/commands'
 
 const router = useRouter()
 const { t, locale } = useI18n()
@@ -57,6 +58,20 @@ function toggleGuardDevices() {
 }
 
 const checkUpdateStatus = ref<'idle' | 'checking' | 'no_update' | 'error'>('idle')
+const exportLogsStatus = ref<'idle' | 'done' | 'error'>('idle')
+
+async function onExportLogs() {
+  try {
+    const ok = await exportLogs()
+    if (ok) {
+      exportLogsStatus.value = 'done'
+      setTimeout(() => { exportLogsStatus.value = 'idle' }, 2000)
+    }
+  } catch {
+    exportLogsStatus.value = 'error'
+    setTimeout(() => { exportLogsStatus.value = 'idle' }, 2000)
+  }
+}
 
 async function onCheckUpdate() {
   checkUpdateStatus.value = 'checking'
@@ -203,6 +218,15 @@ async function onCheckUpdate() {
         <div class="settings__item">
           <span class="settings__label">{{ t('settings.version') }}</span>
           <span class="settings__value">{{ settingsStore.settings.version }}</span>
+        </div>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('settings.exportLogs') }}</span>
+          <button class="settings__link" @click="onExportLogs">
+            <span v-if="exportLogsStatus === 'done'" class="settings__check-result">✓</span>
+            <span v-else-if="exportLogsStatus === 'error'" class="settings__check-result settings__check-result--error">✕</span>
+            <span v-else>{{ t('common.saveAs') }}</span>
+          </button>
         </div>
 
         <div class="settings__item">

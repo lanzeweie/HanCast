@@ -91,6 +91,7 @@ function onOverlay(e: MouseEvent) {
 .modal-box--small .modal-title {
   font-size: 14px;
   margin-bottom: var(--sp-sm);
+  text-align: left;
 }
 
 .modal-box--small .modal-body {

@@ -110,5 +110,10 @@
   "update.checkFailed": "检查失败，请稍后重试",
   "close.title": "最小化到任务栏",
   "close.message": "HanCast 将最小化到右下角任务栏运行\n如需完全退出，请右键任务栏图标选择退出",
-  "close.dontRemind": "不再提醒"
+  "close.dontRemind": "不再提醒",
+  "autostartPrompt.title": "是否开启开机自启？",
+  "autostartPrompt.desc": "HanCast 将在系统启动时自动运行，方便随时投屏。",
+  "autostartPrompt.hint": "你也可以稍后在设置或右下角任务栏开启自启",
+  "autostartPrompt.skip": "暂不",
+  "autostartPrompt.enable": "开启"
 }

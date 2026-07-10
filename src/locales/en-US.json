@@ -110,5 +110,10 @@
   "update.checkFailed": "Check failed, please try again later",
   "close.title": "Minimize to Taskbar",
   "close.message": "HanCast will minimize to the taskbar.\nTo fully exit, right-click the taskbar icon.",
-  "close.dontRemind": "Don't remind me"
+  "close.dontRemind": "Don't remind me",
+  "autostartPrompt.title": "Enable auto start?",
+  "autostartPrompt.desc": "HanCast will automatically run when your system starts, making it easy to cast anytime.",
+  "autostartPrompt.hint": "You can also enable this later in Settings or the system tray",
+  "autostartPrompt.skip": "Not Now",
+  "autostartPrompt.enable": "Enable"
 }

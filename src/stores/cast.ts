@@ -13,6 +13,7 @@ import {
   seekCast as apiSeekCast,
   setVolume as apiSetVolume,
   setMute as apiSetMute,
+  getAutostart,
 } from '@/api/commands'
 
 /** Parse "HH:MM:SS" to total seconds */
@@ -37,6 +38,9 @@ export const useCastStore = defineStore('cast', () => {
 
   // ── Embedded controller modal state ──
   const showController = ref(false)
+
+  // ── Autostart prompt state ──
+  const showAutostartPrompt = ref(false)
 
   // ── Computed: active session helpers ──
   const activeDeviceIds = computed(() =>
@@ -312,12 +316,37 @@ export const useCastStore = defineStore('cast', () => {
       // Start progress simulation immediately — don't wait for cast_state_changed event
       // The device will start playing very soon after apiStartCast succeeds
       startSim(deviceId)
+
+      // Check if we should prompt for autostart (first successful cast)
+      checkAutostartPrompt()
     } catch (err) {
       const session = sessions.value[deviceId]
       if (session) updateSession(deviceId, { status: 'error' })
       console.error('Failed to start cast:', err)
     } finally {
       loading.value = false
+    }
+  }
+
+  /** Check if we should show the autostart prompt (first successful cast) */
+  async function checkAutostartPrompt() {
+    // Only prompt once per app lifetime
+    const hasAsked = localStorage.getItem('has_asked_autostart')
+    if (hasAsked) return
+
+    try {
+      const isEnabled = await getAutostart()
+      if (!isEnabled) {
+        // Delay 6s to let the controller modal appear first
+        setTimeout(() => {
+          showAutostartPrompt.value = true
+        }, 6000)
+      } else {
+        // Already enabled, mark as asked to avoid future checks
+        localStorage.setItem('has_asked_autostart', 'true')
+      }
+    } catch (err) {
+      console.error('Failed to check autostart status:', err)
     }
   }
 
@@ -530,6 +559,9 @@ export const useCastStore = defineStore('cast', () => {
     loading,
     showController,
 
+    // Autostart prompt
+    showAutostartPrompt,
+
     // Backward-compat (single-device view via focusedSession)
     castState,
     isIdle,
@@ -559,5 +591,8 @@ export const useCastStore = defineStore('cast', () => {
     seek,
     setVolume,
     setMute,
+
+    // Autostart prompt actions
+    closeAutostartPrompt: () => { showAutostartPrompt.value = false },
   }
 })

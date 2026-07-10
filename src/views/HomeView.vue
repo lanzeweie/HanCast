@@ -4,6 +4,12 @@ import MediaInput from '@/components/MediaInput.vue'
 import DeviceList from '@/components/DeviceList.vue'
 import CastController from '@/components/CastController.vue'
 import Footer from '@/components/Footer.vue'
+import AutostartPromptModal from '@/components/AutostartPromptModal.vue'
+import { useCastStore } from '@/stores/cast'
+import { storeToRefs } from 'pinia'
+
+const castStore = useCastStore()
+const { showAutostartPrompt } = storeToRefs(castStore)
 </script>
 
 <template>
@@ -16,6 +22,11 @@ import Footer from '@/components/Footer.vue'
     <Footer />
     <!-- Embedded cast controller modal -->
     <CastController />
+    <!-- Autostart prompt (first successful cast) -->
+    <AutostartPromptModal
+      :visible="showAutostartPrompt"
+      @close="castStore.closeAutostartPrompt()"
+    />
   </div>
 </template>
 

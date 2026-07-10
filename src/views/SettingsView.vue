@@ -7,6 +7,7 @@ import { useThemeStore, type ThemeMode } from '@/stores/theme'
 import { useGuardStore } from '@/stores/guard'
 import { useUpdateStore } from '@/stores/update'
 import GuardDeviceList from '@/components/GuardDeviceList.vue'
+import CustomSelect from '@/components/CustomSelect.vue'
 
 const router = useRouter()
 const { t, locale } = useI18n()
@@ -44,9 +45,8 @@ function onGuardEnabledChange(e: Event) {
   guardStore.saveSettings({ enabled })
 }
 
-function onGuardTimeoutChange(e: Event) {
-  const timeout = Number((e.target as HTMLSelectElement).value)
-  guardStore.saveSettings({ confirm_timeout: timeout })
+function onGuardTimeoutChange(timeout: number | string) {
+  guardStore.saveSettings({ confirm_timeout: Number(timeout) })
 }
 
 function toggleGuardDevices() {
@@ -91,27 +91,27 @@ async function onCheckUpdate() {
 
         <div class="settings__item">
           <span class="settings__label">{{ t('theme.title') }}</span>
-          <select
-            class="settings__select"
-            :value="themeStore.mode"
-            @change="onThemeChange(($event.target as HTMLSelectElement).value as ThemeMode)"
-          >
-            <option value="system">{{ t('theme.system') }}</option>
-            <option value="light">{{ t('theme.light') }}</option>
-            <option value="dark">{{ t('theme.dark') }}</option>
-          </select>
+          <CustomSelect
+            :model-value="themeStore.mode"
+            @update:model-value="onThemeChange($event as ThemeMode)"
+            :options="[
+              { label: t('theme.system'), value: 'system' },
+              { label: t('theme.light'), value: 'light' },
+              { label: t('theme.dark'), value: 'dark' },
+            ]"
+          />
         </div>
 
         <div class="settings__item">
           <span class="settings__label">{{ t('settings.language') }}</span>
-          <select
-            class="settings__select"
-            :value="locale"
-            @change="onLanguageChange(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="zh-CN">简体中文</option>
-            <option value="en-US">English</option>
-          </select>
+          <CustomSelect
+            :model-value="locale"
+            @update:model-value="onLanguageChange($event as string)"
+            :options="[
+              { label: '简体中文', value: 'zh-CN' },
+              { label: 'English', value: 'en-US' },
+            ]"
+          />
         </div>
 
         <div class="settings__item">
@@ -161,17 +161,16 @@ async function onCheckUpdate() {
 
         <div class="settings__item">
           <span class="settings__label">{{ t('guard.timeout') }}</span>
-          <select
-            class="settings__select"
-            :value="guardStore.settings.confirm_timeout"
-            @change="onGuardTimeoutChange"
-            :disabled="!guardStore.settings.enabled"
-          >
-            <option :value="10">{{ t('guard.seconds', { n: 10 }) }}</option>
-            <option :value="15">{{ t('guard.seconds', { n: 15 }) }}</option>
-            <option :value="30">{{ t('guard.seconds', { n: 30 }) }}</option>
-            <option :value="60">{{ t('guard.seconds', { n: 60 }) }}</option>
-          </select>
+          <CustomSelect
+            :model-value="guardStore.settings.confirm_timeout"
+            @update:model-value="onGuardTimeoutChange"
+            :options="[
+              { label: t('guard.seconds', { n: 10 }), value: 10 },
+              { label: t('guard.seconds', { n: 15 }), value: 15 },
+              { label: t('guard.seconds', { n: 30 }), value: 30 },
+              { label: t('guard.seconds', { n: 60 }), value: 60 },
+            ]"
+          />
         </div>
 
         <button class="settings__item settings__item--clickable" @click="toggleGuardDevices">
@@ -217,6 +216,18 @@ async function onCheckUpdate() {
             <span v-else-if="checkUpdateStatus === 'error'" class="settings__check-result settings__check-result--error">{{ t('update.checkFailed') }}</span>
             <span v-else>{{ t('settings.checkUpdate') }}</span>
           </button>
+        </div>
+
+        <div class="settings__item">
+          <a class="settings__link" href="https://github.com/lanzeweie/HanCast" target="_blank">
+            {{ t('settings.repository') }}
+          </a>
+        </div>
+
+        <div class="settings__item">
+          <a class="settings__link" href="https://qm.qq.com/q/ihWd29FR0A?group=821473246" target="_blank">
+            {{ t('settings.qqGroup') }}
+          </a>
         </div>
 
         <div class="settings__item">
@@ -323,15 +334,7 @@ async function onCheckUpdate() {
   white-space: nowrap;
 }
 
-.settings__select {
-  padding: 4px 8px;
-  font-size: 13px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  color: var(--text-primary);
-  cursor: pointer;
-}
+/* select styles moved to CustomSelect.vue */
 
 .settings__input {
   padding: 4px 8px;
@@ -340,7 +343,7 @@ async function onCheckUpdate() {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   color: var(--text-primary);
-  width: 160px;
+  width: 180px;
 }
 
 .settings__input--small {

@@ -50,6 +50,8 @@
   "settings.proxy": "代理",
   "settings.version": "版本",
   "settings.checkUpdate": "检查更新",
+  "settings.repository": "GitHub 仓库",
+  "settings.qqGroup": "QQ 交流群 (821473246)",
   "settings.license": "开源许可",
   "cast.idle": "空闲",
   "cast.connecting": "连接中...",

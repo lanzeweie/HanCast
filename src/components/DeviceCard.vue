@@ -20,7 +20,9 @@ const mediaStore = useMediaStore()
 const castStore = useCastStore()
 
 const showMenu = ref(false)
+const showContextMenu = ref(false)
 const menuWrapRef = ref<HTMLElement | null>(null)
+const contextMenuPos = ref({ x: 0, y: 0 })
 
 // Modal states
 const showRename = ref(false)
@@ -47,6 +49,15 @@ function onDocClick(e: MouseEvent) {
   if (showMenu.value && menuWrapRef.value && !menuWrapRef.value.contains(e.target as Node)) {
     showMenu.value = false
   }
+  if (showContextMenu.value) {
+    showContextMenu.value = false
+  }
+}
+
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  contextMenuPos.value = { x: e.clientX, y: e.clientY }
+  showContextMenu.value = true
 }
 
 onMounted(() => document.addEventListener('click', onDocClick))
@@ -86,12 +97,14 @@ async function onRestoreController() {
 function onSetDefault() {
   deviceStore.setDefault(props.device.id)
   showMenu.value = false
+  showContextMenu.value = false
 }
 
 function onRenameClick() {
   renameInput.value = props.device.name
   showRename.value = true
   showMenu.value = false
+  showContextMenu.value = false
 }
 
 function onRenameConfirm() {
@@ -104,6 +117,7 @@ function onRenameConfirm() {
 function onRemoveClick() {
   showRemove.value = true
   showMenu.value = false
+  showContextMenu.value = false
 }
 
 function onRemoveConfirm() {
@@ -123,6 +137,7 @@ function toggleMenu() {
       'device-card--offline': isOffline(),
       'device-card--casting': isCastingToDevice,
     }"
+    @contextmenu="onContextMenu"
   >
     <span class="device-card__status" :style="{ background: getStatusColor(device.status) }" />
 
@@ -217,6 +232,19 @@ function toggleMenu() {
         <button class="btn-danger" @click="onRemoveConfirm">{{ t('common.confirm') }}</button>
       </template>
     </Modal>
+
+    <!-- Right-click context menu -->
+    <Teleport to="body">
+      <div
+        v-if="showContextMenu"
+        class="device-card__context-menu"
+        :style="{ left: contextMenuPos.x + 'px', top: contextMenuPos.y + 'px' }"
+      >
+        <button @click="onSetDefault">{{ t('devices.setDefault') }}</button>
+        <button @click="onRenameClick">{{ t('devices.rename') }}</button>
+        <button class="device-card__context-menu--danger" @click="onRemoveClick">{{ t('devices.remove') }}</button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -427,5 +455,40 @@ function toggleMenu() {
   50% {
     box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
   }
+}
+</style>
+
+<!-- Non-scoped styles for Teleported context menu -->
+<style>
+.device-card__context-menu {
+  position: fixed;
+  background: var(--bg-card);
+  border-radius: var(--r-md);
+  padding: 4px 0;
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  animation: fadeIn 0.15s ease;
+  white-space: nowrap;
+}
+
+.device-card__context-menu button {
+  display: block;
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background var(--transition-fast);
+}
+
+.device-card__context-menu button:hover {
+  background: var(--bg-secondary);
+}
+
+.device-card__context-menu--danger {
+  color: #EF4444 !important;
+}
+
+.device-card__context-menu button:focus-visible {
+  outline: none !important;
 }
 </style>

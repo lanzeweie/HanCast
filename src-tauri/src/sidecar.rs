@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use tauri::async_runtime::Receiver;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{oneshot, Mutex};

@@ -50,6 +50,8 @@
   "settings.proxy": "Proxy",
   "settings.version": "Version",
   "settings.checkUpdate": "Check for Updates",
+  "settings.repository": "GitHub Repository",
+  "settings.qqGroup": "QQ Group (821473246)",
   "settings.license": "Open Source Licenses",
   "cast.idle": "Idle",
   "cast.connecting": "Connecting...",

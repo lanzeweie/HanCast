@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useThemeStore } from '@/stores/theme'
 import { useGuardStore } from '@/stores/guard'
@@ -12,8 +12,20 @@ const themeStore = useThemeStore()
 const guardStore = useGuardStore()
 const updateStore = useUpdateStore()
 
+// 非 dev 模式下禁用浏览器默认右键菜单
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault()
+}
+
 onMounted(() => {
   settingsStore.fetchSettings()
+  if (!import.meta.env.DEV) {
+    document.addEventListener('contextmenu', onContextMenu)
+  }
+})
+
+onUnmounted(() => {
+  document.removeEventListener('contextmenu', onContextMenu)
 })
 </script>
 

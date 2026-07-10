@@ -87,12 +87,18 @@ class DeviceGuard:
 
         for entry_data in guard_cfg.get("trusted_devices", []):
             entry = DeviceGuardEntry.from_dict(entry_data)
+            # 修复空 UDN：用 IP 作为 key
+            if not entry.udn:
+                entry.udn = f"ip:{entry.ip}"
             self._trusted[entry.udn] = entry
             if entry.ip:
                 self._ip_index[entry.ip] = entry.udn
 
         for entry_data in guard_cfg.get("blacklisted_devices", []):
             entry = DeviceGuardEntry.from_dict(entry_data)
+            # 修复空 UDN：用 IP 作为 key
+            if not entry.udn:
+                entry.udn = f"ip:{entry.ip}"
             self._blacklisted[entry.udn] = entry
             if entry.ip:
                 self._ip_index[entry.ip] = entry.udn
@@ -365,7 +371,7 @@ class DeviceGuard:
     # ── 内部方法 ──
 
     def _add_trusted(self, ip: str, device_info: dict):
-        udn = device_info.get("udn", f"ip:{ip}")
+        udn = device_info.get("udn") or f"ip:{ip}"
         entry = DeviceGuardEntry(
             udn=udn,
             ip=ip,
@@ -380,7 +386,7 @@ class DeviceGuard:
         self._save()
 
     def _add_blacklisted(self, ip: str, device_info: dict):
-        udn = device_info.get("udn", f"ip:{ip}")
+        udn = device_info.get("udn") or f"ip:{ip}"
         entry = DeviceGuardEntry(
             udn=udn,
             ip=ip,

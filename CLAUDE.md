@@ -5,8 +5,8 @@
 **HanCast** 是基于 [xfangfang/Macast](https://github.com/xfangfang/Macast) 的二次开发项目，跨平台投屏应用，支持将媒体文件/链接投屏到局域网设备，同时可作为 DLNA 接收端。
 
 - **项目名**: HanCast
-- **作者**: Han
-- **版本**: 2.0.0
+- **作者**: lanzeweie@foxmail.com
+- **版本**: 2.0.1
 - **性质**: 二次开发（非原项目官方更新）
 - **原始代码**: `Macast-main/`（原作者 xfangfang，最后更新 2022-01）
 - **目标架构**: Tauri 2.0 前端 + Rust 桥接 + Python Sidecar

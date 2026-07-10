@@ -3,7 +3,7 @@ name = "HanCast"
 # version synced from tauri.conf.json
 version = "2.0.1"
 description = "HanCast: A cross-platform media casting application (fork of xfangfang/Macast)"
-authors = ["Han"]
+authors = ["lanzeweie@foxmail.com"]
 edition = "2021"
 
 [lib]

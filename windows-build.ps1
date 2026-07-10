@@ -280,7 +280,7 @@ if ($RebuildSidecar) {
     Write-Step "4" "跳过 Sidecar 构建"
 
     # 检查 Sidecar 是否存在
-    $sidecarExe = "src-tauri\hancast-sidecar\hancast-sidecar.exe"
+    $sidecarExe = "src-tauri\hancast-sidecar\hancast-sidecar-x86_64-pc-windows-msvc.exe"
     if (Test-Path $sidecarExe) {
         $size = (Get-ChildItem $sidecarExe -ErrorAction SilentlyContinue).Length / 1MB
         Write-Host "    Sidecar 已存在: $([math]::Round($size, 1)) MB" -ForegroundColor DarkGray
@@ -331,7 +331,7 @@ if ($Portable) {
         exit 1
     }
 
-    if (-not (Test-Path "$sidecarDir\hancast-sidecar.exe")) {
+    if (-not (Test-Path "$sidecarDir\hancast-sidecar-x86_64-pc-windows-msvc.exe")) {
         Write-Err "Sidecar 未找到，请先构建 Python 后端"
         exit 1
     }

@@ -1,7 +1,9 @@
 mod sidecar;
 
+use serde::{Deserialize, Serialize};
 use sidecar::SidecarManager;
 use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 use tauri::{
     menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -9,6 +11,108 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+
+/// 窗口配置数据结构
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct WindowConfig {
+    /// 窗口宽度
+    width: f64,
+    /// 窗口高度
+    height: f64,
+    /// 窗口 X 坐标
+    x: f64,
+    /// 窗口 Y 坐标
+    y: f64,
+    /// 是否最大化
+    maximized: bool,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            width: 434.0,
+            height: 634.0,
+            x: 0.0,
+            y: 0.0,
+            maximized: false,
+        }
+    }
+}
+
+/// 窗口配置状态（用于防抖）
+#[derive(Clone)]
+struct WindowConfigState {
+    config: Arc<Mutex<WindowConfig>>,
+    config_path: PathBuf,
+    save_timer: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+}
+
+impl WindowConfigState {
+    /// 加载配置文件
+    fn load(config_path: &PathBuf) -> Self {
+        let config = if config_path.exists() {
+            match std::fs::read_to_string(config_path) {
+                Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+                Err(_) => WindowConfig::default(),
+            }
+        } else {
+            WindowConfig::default()
+        };
+
+        Self {
+            config: Arc::new(Mutex::new(config)),
+            config_path: config_path.clone(),
+            save_timer: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// 更新配置并触发延迟保存（使用后台线程实现防抖）
+    fn update_and_save(&self, new_config: WindowConfig) {
+        // 更新内存中的配置
+        {
+            let mut config = self.config.lock().unwrap();
+            *config = new_config;
+        }
+
+        // 取消之前的保存任务
+        {
+            let mut timer = self.save_timer.lock().unwrap();
+            if let Some(handle) = timer.take() {
+                handle.abort();
+            }
+        }
+
+        // 启动新的延迟保存任务（500ms 防抖）
+        let config_ref = self.config.clone();
+        let path = self.config_path.clone();
+        let timer_ref = self.save_timer.clone();
+
+        let handle = tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            let config = config_ref.lock().unwrap().clone();
+            if let Ok(json) = serde_json::to_string_pretty(&config) {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&path, json);
+            }
+
+            // 清除定时器引用
+            let mut timer = timer_ref.lock().unwrap();
+            *timer = None;
+        });
+
+        // 保存新的定时器句柄
+        let mut timer = self.save_timer.lock().unwrap();
+        *timer = Some(handle);
+    }
+
+    /// 获取当前配置
+    fn get_config(&self) -> WindowConfig {
+        self.config.lock().unwrap().clone()
+    }
+}
 
 /// 当前投屏 URL 缓存（供托盘菜单使用）
 struct CastUrlState {
@@ -440,6 +544,64 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // 加载窗口配置
+            let config_path = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join("window_config.json");
+
+            let window_config_state = WindowConfigState::load(&config_path);
+
+            // 恢复窗口尺寸和位置
+            if let Some(window) = app.get_webview_window("main") {
+                let config = window_config_state.get_config();
+
+                // 设置窗口尺寸
+                let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                    width: config.width as u32,
+                    height: config.height as u32,
+                }));
+
+                // 设置窗口位置（仅当位置有效时）
+                if config.x > 0.0 && config.y > 0.0 {
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                        x: config.x as i32,
+                        y: config.y as i32,
+                    }));
+                }
+
+                // 恢复最大化状态
+                if config.maximized {
+                    let _ = window.maximize();
+                }
+
+                // 禁用最大化（阻止双击标题栏最大化）
+                window.set_maximizable(false).ok();
+
+                // 监听窗口事件
+                let window_config_clone = window_config_state.clone();
+                window.on_window_event(move |event| {
+                    match event {
+                        tauri::WindowEvent::Resized(size) => {
+                            let mut config = window_config_clone.get_config();
+                            config.width = size.width as f64;
+                            config.height = size.height as f64;
+                            window_config_clone.update_and_save(config);
+                        }
+                        tauri::WindowEvent::Moved(position) => {
+                            let mut config = window_config_clone.get_config();
+                            config.x = position.x as f64;
+                            config.y = position.y as f64;
+                            window_config_clone.update_and_save(config);
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
+            app.manage(window_config_state);
+
             // 开机自启时最小化到托盘（--minimized 参数由注册表/autostart 设置）
             if std::env::args().any(|a| a == "--minimized") {
                 if let Some(window) = app.get_webview_window("main") {

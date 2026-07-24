@@ -23,7 +23,15 @@
   </a>
 </p>
 
-![HanCast 亮色 / 暗色主题](docs/images/themes-light-dark.png)
+<p align="center">
+  <a href="README_en.md">
+    <img src="docs/images/HanCast-Chinese.png" alt="HanCast - 一个应用，连接所有屏幕" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <sub><a href="README.md">🇨🇳 中文</a> | <a href="README_en.md">🇺🇸 English</a></sub>
+</p>
 
 ---
 

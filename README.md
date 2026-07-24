@@ -14,9 +14,13 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-10%2F11-blue?logo=windows" alt="Windows">
-  <img src="https://img.shields.io/badge/macOS-12%2B-black?logo=apple" alt="macOS">
-  <img src="https://img.shields.io/badge/Linux-Ubuntu%2020.04%2B-orange?logo=linux" alt="Linux">
   <img src="https://img.shields.io/badge/License-GPL--3.0-green" alt="License">
+</p>
+
+<p align="center">
+  <a href="https://apps.microsoft.com/detail/9nk1xwpg6hd5?launch=true&mode=mini">
+    <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Microsoft Store" height="48">
+  </a>
 </p>
 
 ![HanCast 亮色 / 暗色主题](docs/images/themes-light-dark.png)

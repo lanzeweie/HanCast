@@ -336,29 +336,33 @@ if ($Portable) {
         exit 1
     }
 
-    # 清理旧目录（带重试）
+    # 清理或创建目标目录
     if (Test-Path $portableDir) {
+        # 强制终止可能占用该目录的进程
         @("HanCast", "hancast-sidecar") | ForEach-Object {
             Get-Process -Name $_ -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         }
         Start-Sleep -Seconds 1
 
+        # 优雅清空：不删外壳文件夹，只删里面的所有文件和子目录
         $retries = 5
         for ($i = 0; $i -lt $retries; $i++) {
             try {
-                cmd /c "rmdir /s /q `"$portableDir`"" 2>$null
-                if (-not (Test-Path $portableDir)) { break }
-                throw "目录仍然存在"
+                Get-ChildItem -Path $portableDir -Recurse | Remove-Item -Recurse -Force
+                break
             } catch {
                 if ($i -lt $retries - 1) {
-                    Write-Warn "清理失败，重试中... ($($i+1)/$retries)"
+                    Write-Warn "清理绿色版目录失败，重试中... ($($i+1)/$retries)"
                     Start-Sleep -Seconds 2
                 } else {
-                    Write-Err "无法删除旧目录"
+                    Write-Err "无法清空绿色版旧目录: $_"
                     exit 1
                 }
             }
         }
+    } else {
+        # 如果不存在，则安全创建，加上 -Force 确保万无一失
+        New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
     }
 
     # 创建目标目录

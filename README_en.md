@@ -1,4 +1,9 @@
 <p align="center">
+  <a href="README.md"><img src="https://img.shields.io/badge/README-CN-blue?style=flat-square&logo=github" alt="中文"></a>
+  <a href="README_en.md"><img src="https://img.shields.io/badge/README-EN-blue?style=flat-square&logo=github" alt="English"></a>
+</p>
+
+<p align="center">
   <img src="src-tauri/icons/icon.png" width="120" alt="HanCast Logo">
 </p>
 
@@ -24,13 +29,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">
-    <img src="docs/images/HanCast-English.png" alt="HanCast - One App, Connect All Screens" width="100%">
-  </a>
+  <img src="docs/images/HanCast-English.png" alt="HanCast - One App, Every Screen Connected" width="100%">
 </p>
 
 <p align="center">
-  <sub><a href="README.md">🇨🇳 中文</a> | <a href="README_en.md">🇺🇸 English</a></sub>
+  <img src="docs/images/screenshot-windows.png" alt="HanCast Windows Interface Preview" width="100%">
 </p>
 
 ---

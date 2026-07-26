@@ -86,7 +86,7 @@ const MOCK_DEVICES: Device[] = [
 const MOCK_SETTINGS: AppSettings = {
   usn: 'hancast-uuid-001',
   friendly_name: 'HanCast',
-  version: '2.0.1',
+  version: '2.0.4',
   media_port: 8080,
   default_device: null,
   settings: {},
@@ -178,14 +178,16 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     case 'check_update':
       return {
         has_update: false,
-        current: '2.0.1',
-        latest: '2.0.1',
+        current: '2.0.4',
+        latest: '2.0.4',
         url: '',
         body: '',
         source: 'github',
       } as T
     case 'ignore_update_version':
       return true as T
+    case 'is_store_version':
+      return false as T
     case 'export_logs':
       return true as T
     default:
@@ -388,4 +390,15 @@ export async function checkUpdate(currentVersion: string, force?: boolean): Prom
 export async function ignoreUpdateVersion(version: string): Promise<boolean> {
   const invoke = await initInvoke()
   return invoke<boolean>('ignore_update_version', { version })
+}
+
+// ── Microsoft Store Detection ──
+
+export async function isStoreVersion(): Promise<boolean> {
+  try {
+    const invoke = await initInvoke()
+    return invoke<boolean>('is_store_version')
+  } catch {
+    return false
+  }
 }

@@ -444,6 +444,18 @@ async fn save_guard_settings(
     Ok(())
 }
 
+// ── Microsoft Store Detection ──
+
+#[tauri::command]
+fn is_store_version() -> bool {
+    let exe_path = std::env::current_exe().ok();
+    if let Some(path) = exe_path {
+        let path_str = path.to_string_lossy().to_lowercase();
+        return path_str.contains("windowsapps") || path_str.contains("553787e6.hancast");
+    }
+    false
+}
+
 // ── MPV Management ──
 
 #[tauri::command]
@@ -703,6 +715,12 @@ pub fn run() {
             // Background task: startup update check (non-blocking, 2s timeout)
             let app_handle_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                // 微软商店版本由 Store 自动管理更新，跳过检查
+                if is_store_version() {
+                    eprintln!("[Update] Microsoft Store version — skipping auto-update check");
+                    return;
+                }
+
                 // 等待 sidecar 就绪
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
@@ -847,6 +865,7 @@ pub fn run() {
             check_mpv,
             set_mpv_path,
             export_logs,
+            is_store_version,
             get_autostart,
             set_autostart,
         ])

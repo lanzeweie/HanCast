@@ -230,16 +230,27 @@ async function onCheckUpdate() {
         </div>
 
         <div class="settings__item">
-          <button
-            class="settings__link"
-            :disabled="checkUpdateStatus === 'checking'"
-            @click="onCheckUpdate"
-          >
-            <span v-if="checkUpdateStatus === 'checking'">{{ t('update.checking') }}</span>
-            <span v-else-if="checkUpdateStatus === 'no_update'" class="settings__check-result">{{ t('update.latestAlready') }}</span>
-            <span v-else-if="checkUpdateStatus === 'error'" class="settings__check-result settings__check-result--error">{{ t('update.checkFailed') }}</span>
-            <span v-else>{{ t('settings.checkUpdate') }}</span>
-          </button>
+          <template v-if="updateStore.storeVersion">
+            <a
+              class="settings__link"
+              href="https://apps.microsoft.com/detail/9nk1xwpg6hd5?launch=true&mode=mini"
+              target="_blank"
+            >
+              {{ t('update.storeHint') }}
+            </a>
+          </template>
+          <template v-else>
+            <button
+              class="settings__link"
+              :disabled="checkUpdateStatus === 'checking'"
+              @click="onCheckUpdate"
+            >
+              <span v-if="checkUpdateStatus === 'checking'">{{ t('update.checking') }}</span>
+              <span v-else-if="checkUpdateStatus === 'no_update'" class="settings__check-result">{{ t('update.latestAlready') }}</span>
+              <span v-else-if="checkUpdateStatus === 'error'" class="settings__check-result settings__check-result--error">{{ t('update.checkFailed') }}</span>
+              <span v-else>{{ t('settings.checkUpdate') }}</span>
+            </button>
+          </template>
         </div>
 
         <div class="settings__item">

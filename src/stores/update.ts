@@ -1,7 +1,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { defineStore } from 'pinia'
 import type { UpdateInfo } from '@/types/update'
-import { checkUpdate, ignoreUpdateVersion as apiIgnoreUpdateVersion } from '@/api/commands'
+import { checkUpdate, ignoreUpdateVersion as apiIgnoreUpdateVersion, isStoreVersion } from '@/api/commands'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 
 export const useUpdateStore = defineStore('update', () => {
@@ -10,14 +10,25 @@ export const useUpdateStore = defineStore('update', () => {
   const showModal = ref(false)
   const loading = ref(false)
   const error = ref('')
+  const storeVersion = ref(false)
 
   let unlistenFns: UnlistenFn[] = []
   let listenersSetup = false
+
+  /** 初始化：检测是否为微软商店版本 */
+  async function init() {
+    storeVersion.value = await isStoreVersion()
+  }
 
   // ── Actions ──
 
   /** 手动检查更新（设置页按钮调用） */
   async function check(currentVersion: string, force = true) {
+    // 微软商店版本由 Store 自动管理更新，跳过检查
+    if (storeVersion.value) {
+      error.value = 'store_version'
+      return null
+    }
     loading.value = true
     error.value = ''
     try {
@@ -70,6 +81,12 @@ export const useUpdateStore = defineStore('update', () => {
     if (listenersSetup) return
     listenersSetup = true
 
+    // 先检测是否为商店版本
+    await init()
+
+    // 商店版本不监听自动更新事件
+    if (storeVersion.value) return
+
     try {
       const { listen } = await import('@tauri-apps/api/event')
 
@@ -105,6 +122,7 @@ export const useUpdateStore = defineStore('update', () => {
     showModal,
     loading,
     error,
+    storeVersion,
     check,
     ignoreVersion,
     closeModal,

@@ -14,6 +14,7 @@ const emit = defineEmits<{
 
 const GITHUB_URL = 'https://github.com/lanzeweie/HanCast/releases/latest'
 const GITEE_URL = 'https://gitee.com/buxiangqumingzi/han-cast/releases/latest'
+const STORE_URL = 'https://apps.microsoft.com/detail/9nk1xwpg6hd5?launch=true&mode=mini'
 
 async function openUrl(url: string) {
   try {
@@ -34,6 +35,11 @@ function onGitee() {
   openUrl(GITEE_URL)
   emit('close')
 }
+
+function onStore() {
+  openUrl(STORE_URL)
+  emit('close')
+}
 </script>
 
 <template>
@@ -52,6 +58,12 @@ function onGitee() {
             <path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.95 14.14H9.37c-2.13 0-3.94-1.74-3.94-3.88 0-2.13 1.81-3.88 3.94-3.88h6.58c.55 0 1 .45 1 1s-.45 1-1 1H9.37c-1.07 0-1.94.87-1.94 1.88 0 1 .87 1.88 1.94 1.88h6.58c.55 0 1 .45 1 1s-.45 1-1 1z"/>
           </svg>
           <span>Gitee</span>
+        </button>
+        <button class="btn-store" @click="onStore">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+          </svg>
+          <span>{{ t('update.store') }}</span>
         </button>
       </div>
     </div>
@@ -107,5 +119,14 @@ function onGitee() {
 
 .btn-gitee:hover {
   background: #dc2626;
+}
+
+.btn-store {
+  background: #0078d4;
+  color: white;
+}
+
+.btn-store:hover {
+  background: #106ebe;
 }
 </style>

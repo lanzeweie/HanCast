@@ -200,7 +200,7 @@ toml = [
 
 [[package]]
 name = "hancast-sidecar"
-version = "2.0.1"
+version = "2.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "lxml" },

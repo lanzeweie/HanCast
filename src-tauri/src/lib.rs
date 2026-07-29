@@ -12,6 +12,12 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+#[cfg(target_os = "windows")]
+use windows::{
+    ApplicationModel::{StartupTask, StartupTaskState},
+    core::HSTRING,
+};
+
 /// 窗口配置数据结构
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct WindowConfig {
@@ -451,7 +457,13 @@ fn is_store_version() -> bool {
     let exe_path = std::env::current_exe().ok();
     if let Some(path) = exe_path {
         let path_str = path.to_string_lossy().to_lowercase();
-        return path_str.contains("windowsapps") || path_str.contains("553787e6.hancast");
+        // 检测条件：
+        // 1. 路径包含 "windowsapps"（微软商店标准路径）
+        // 2. 路径包含 "553787e6.hancast"（MSIX Identity Name）
+        // 3. 路径包含 "build-msix"（本地 MSIX 注册安装）
+        return path_str.contains("windowsapps")
+            || path_str.contains("553787e6.hancast")
+            || path_str.contains("build-msix");
     }
     false
 }
@@ -525,25 +537,87 @@ async fn export_logs(app: tauri::AppHandle) -> Result<bool, String> {
 /// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
 const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
+/// MSIX StartupTask ID（与 AppxManifest.xml 中的 TaskId 一致）
+const STARTUP_TASK_ID: &str = "HanCastStartup";
+
 // ── Autostart ──
 
-#[tauri::command]
-fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|e| e.to_string())
+/// MSIX 环境下获取开机自启状态（使用 WinRT StartupTask API）
+#[cfg(target_os = "windows")]
+async fn get_autostart_msix() -> Result<bool, String> {
+    let task_id = HSTRING::from(STARTUP_TASK_ID);
+    let task = StartupTask::GetAsync(&task_id)
+        .map_err(|e| format!("获取启动任务失败: {e}"))?
+        .await
+        .map_err(|e| format!("等待启动任务失败: {e}"))?;
+
+    let state = task
+        .State()
+        .map_err(|e| format!("获取启动任务状态失败: {e}"))?;
+
+    Ok(state == StartupTaskState::Enabled)
+}
+
+/// MSIX 环境下设置开机自启状态（使用 WinRT StartupTask API）
+#[cfg(target_os = "windows")]
+async fn set_autostart_msix(enabled: bool) -> Result<(), String> {
+    let task_id = HSTRING::from(STARTUP_TASK_ID);
+    let task = StartupTask::GetAsync(&task_id)
+        .map_err(|e| format!("获取启动任务失败: {e}"))?
+        .await
+        .map_err(|e| format!("等待启动任务失败: {e}"))?;
+
+    if enabled {
+        task.RequestEnableAsync()
+            .map_err(|e| format!("请求启用启动任务失败: {e}"))?
+            .await
+            .map_err(|e| format!("等待启用结果失败: {e}"))?;
+    } else {
+        task.Disable()
+            .map_err(|e| format!("禁用启动任务失败: {e}"))?;
+    }
+
+    Ok(())
+}
+
+/// 统一获取开机自启状态（根据环境自动选择实现）
+async fn get_autostart_state(app: &tauri::AppHandle) -> bool {
+    if is_store_version() {
+        get_autostart_msix().await.unwrap_or(false)
+    } else {
+        app.autolaunch().is_enabled().unwrap_or(false)
+    }
 }
 
 #[tauri::command]
-fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    if enabled {
-        app.autolaunch()
-            .enable()
-            .map_err(|e| e.to_string())?;
+async fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
+    if is_store_version() {
+        // MSIX 环境：使用 WinRT StartupTask API
+        get_autostart_msix().await
     } else {
+        // 非 MSIX 环境：使用 tauri-plugin-autostart
         app.autolaunch()
-            .disable()
-            .map_err(|e| e.to_string())?;
+            .is_enabled()
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    if is_store_version() {
+        // MSIX 环境：使用 WinRT StartupTask API
+        set_autostart_msix(enabled).await?;
+    } else {
+        // 非 MSIX 环境：使用 tauri-plugin-autostart
+        if enabled {
+            app.autolaunch()
+                .enable()
+                .map_err(|e| e.to_string())?;
+        } else {
+            app.autolaunch()
+                .disable()
+                .map_err(|e| e.to_string())?;
+        }
     }
     // 通知托盘菜单同步 CheckMenuItem 状态
     let _ = app.emit("autostart-changed", enabled);
@@ -585,14 +659,22 @@ pub fn run() {
                 app.exit(0);
             } else if event.id() == "autostart" {
                 // CheckMenuItem 已自动切换 checked 状态，执行实际操作
-                if app.autolaunch().is_enabled().unwrap_or(false) {
-                    app.autolaunch().disable().ok();
-                } else {
-                    app.autolaunch().enable().ok();
-                }
-                // 通知前端同步状态
-                let enabled = app.autolaunch().is_enabled().unwrap_or(false);
-                let _ = app.emit("autostart-changed", enabled);
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let current = get_autostart_state(&app_handle).await;
+                    if is_store_version() {
+                        set_autostart_msix(!current).await.ok();
+                    } else {
+                        if current {
+                            app_handle.autolaunch().disable().ok();
+                        } else {
+                            app_handle.autolaunch().enable().ok();
+                        }
+                    }
+                    // 通知前端同步状态
+                    let enabled = get_autostart_state(&app_handle).await;
+                    let _ = app_handle.emit("autostart-changed", enabled);
+                });
             }
         })
         .setup(|app| {
@@ -673,7 +755,7 @@ pub fn run() {
             let show = MenuItemBuilder::with_id("show", "显示窗口")
                 .build(app)?;
             let autostart_item = CheckMenuItemBuilder::with_id("autostart", "开机自启")
-                .checked(app.autolaunch().is_enabled().unwrap_or(false))
+                .checked(tauri::async_runtime::block_on(get_autostart_state(app.handle())))
                 .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出")
                 .build(app)?;
@@ -684,11 +766,12 @@ pub fn run() {
                 .item(&quit)
                 .build()?;
 
-            // Build tray icon
+            // Build tray icon (禁用左键弹出菜单，左键只显示窗口)
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip(format!("HanCast v{}", env!("CARGO_PKG_VERSION")))
                 .menu(&menu)
+                .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -699,11 +782,9 @@ pub fn run() {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
-                                // 窗口已可见 → 置顶并聚焦（不隐藏）
                                 window.set_focus().ok();
                                 window.unminimize().ok();
                             } else {
-                                // 窗口不可见 → 显示并置顶
                                 window.show().ok();
                                 window.set_focus().ok();
                             }
@@ -759,7 +840,7 @@ pub fn run() {
             let tray_id = tray.id().clone();
             tauri::async_runtime::spawn(async move {
                 let mut last_url = String::new();
-                let mut last_autostart = app_handle.autolaunch().is_enabled().unwrap_or(false);
+                let mut last_autostart = get_autostart_state(&app_handle).await;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -777,7 +858,7 @@ pub fn run() {
                         Err(_) => String::new(),
                     };
 
-                    let cur_autostart = app_handle.autolaunch().is_enabled().unwrap_or(false);
+                    let cur_autostart = get_autostart_state(&app_handle).await;
                     let url_changed = new_url != last_url;
                     let autostart_changed = cur_autostart != last_autostart;
 
@@ -805,12 +886,7 @@ pub fn run() {
                                 "autostart",
                                 "开机自启",
                             )
-                            .checked(
-                                app_handle
-                                    .autolaunch()
-                                    .is_enabled()
-                                    .unwrap_or(false),
-                            )
+                            .checked(cur_autostart)
                             .build(&app_handle)
                             .unwrap();
                             let quit_item = MenuItemBuilder::with_id("quit", "退出")

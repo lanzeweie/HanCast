@@ -712,15 +712,28 @@ pub fn run() {
                 // 禁用最大化（阻止双击标题栏最大化）
                 window.set_maximizable(false).ok();
 
-                // 监听窗口事件（只保存尺寸，不保存位置）
+                // 监听窗口事件
                 let window_config_clone = window_config_state.clone();
+                let app_handle_for_close = app.handle().clone();
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Resized(size) = event {
-                        let mut config = window_config_clone.get_config();
-                        // 保存时也强制最小尺寸保护
-                        config.width = (size.width as f64).max(346.0);
-                        config.height = (size.height as f64).max(472.0);
-                        window_config_clone.update_and_save(config);
+                    match event {
+                        tauri::WindowEvent::Resized(size) => {
+                            let mut config = window_config_clone.get_config();
+                            // 保存时也强制最小尺寸保护
+                            config.width = (size.width as f64).max(346.0);
+                            config.height = (size.height as f64).max(472.0);
+                            window_config_clone.update_and_save(config);
+                        }
+                        // 拦截关闭请求，隐藏到托盘而不是真正关闭
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            // 阻止默认关闭行为
+                            api.prevent_close();
+                            // 隐藏窗口到托盘
+                            if let Some(window) = app_handle_for_close.get_webview_window("main") {
+                                window.hide().ok();
+                            }
+                        }
+                        _ => {}
                     }
                 });
 

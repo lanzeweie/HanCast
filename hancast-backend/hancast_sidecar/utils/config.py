@@ -33,7 +33,7 @@ class Config:
         self.setting_path = os.path.join(SETTING_DIR, "hancast_setting.json")
         self.settings: Dict = {}
         self.friendly_name = f"HanCast({platform.node()})"
-        self.version = "2.0.6"
+        self.version = "2.0.7"
         self.usn = str(uuid.uuid4())
 
         # 确保配置目录存在

@@ -120,3 +120,43 @@ python scripts/build_sidecar.py
 ## 许可证
 
 GPL-3.0
+
+---
+
+## 调试技巧
+
+### MPV Lua 脚本快速写日志
+
+在 `mpv/portable_config/scripts/` 下的 Lua 脚本中，使用以下模板快速写日志到文件：
+
+```lua
+-- 写入诊断文件
+local diag_file = io.open("mpv_diag.txt", "a")
+local function log(msg)
+    if diag_file then
+        diag_file:write(os.date("%H:%M:%S") .. " script-name: " .. msg .. "\n")
+        diag_file:flush()
+    end
+end
+
+log("=== script loaded ===")
+```
+
+使用方式：
+1. 在脚本开头添加上述代码
+2. 在需要调试的地方调用 `log("message")`
+3. 运行后查看 `mpv_diag.txt` 文件
+4. 调试完成后删除日志代码
+
+示例：
+```lua
+mp.register_event('file-loaded', function()
+    log("file-loaded: media-title=" .. mp.get_property("media-title"))
+    log("file-loaded: filename=" .. mp.get_property("filename"))
+    log("file-loaded: title=" .. mp.get_property("title"))
+end)
+```
+
+### Python 端日志
+
+Python 端的日志输出到 stderr，在 Tauri 开发模式下会显示在终端中。

@@ -696,8 +696,9 @@ class DLNAProtocol:
         self.set_state('TransportStatus', 'OK')
         # 调用渲染器加载媒体并自动播放
         if self._renderer:
-            self._renderer.set_media_url(uri)
+            # 先设置标题，再加载 URL，确保 Lua 脚本在 file-loaded 之前收到标题
             self._renderer.set_media_title(title)
+            self._renderer.set_media_url(uri)
             self._renderer.set_media_resume()
         return {}
 

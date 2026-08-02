@@ -87,6 +87,11 @@ class MPVRenderer(Renderer):
         # 标记正在替换文件，抑制 end-file 事件中的 set_state_stop()
         # 防止 DLNA 控制器收到 STOPPED 后重发 SetAVTransportURI 导致播放归零
         self._replacing_file = True
+
+        # 在 loadfile 之前发送 script-message，确保 Lua 脚本在 file-loaded 之前收到标题
+        if self.title and self.title != "HanCast":
+            self.send_command(['script-message', 'set-hancast-title', self.title])
+
         if start and start != "0":
             self.send_command(['loadfile', url, 'replace', f'start={start}'])
         else:
@@ -96,6 +101,8 @@ class MPVRenderer(Renderer):
         """ data : string """
         self.title = data
         self.send_command(['set_property', 'title', data])
+        # 同时发送 IPC 命令给 Lua 脚本，让它存储标题
+        self.send_command(['script-message', 'set-hancast-title', data])
 
     def set_media_position(self, data):
         """ data : position, 00:00:00 """

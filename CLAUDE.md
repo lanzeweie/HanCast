@@ -520,3 +520,10 @@ npm run test
 - 图谱在 git commit 变更后自动增量更新（需 `--auto-update`）
 - 后台代理需要可用的 Claude 模型（如 `sonnet`），`opus-4-8` 在部分账号不可用
 - 图谱语言默认跟随会话语言（中文会话生成中文描述）
+
+## 图标生成
+
+替换 `src-tauri/icons/icon.png`（建议使用 1024x1024 px 透明背景 PNG）后，在项目根目录下运行：
+
+```bash
+npm run tauri icon ./src-tauri/icons/icon.png

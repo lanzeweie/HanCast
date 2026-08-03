@@ -127,6 +127,7 @@ class DeviceCastSession:
     def _poll_loop(self) -> None:
         """轮询远程设备的播放进度"""
         transport_check_counter = 0
+        last_status = self.cast_state.status  # 记录上次状态，用于检测变化
         # 首次轮询前等待，让 DLNA 设备有时间加载媒体元数据
         # 部分设备在收到 SetAVTransportURI+Play 后需要 2-3 秒才返回正确的
         # TrackDuration/RelTime，否则持续返回 00:00:00
@@ -157,6 +158,14 @@ class DeviceCastSession:
                         self.cast_state.status = "playing"
                     elif state == 'PAUSED_PLAYBACK':
                         self.cast_state.status = "paused"
+
+                    # 检测状态变化，触发回调通知前端
+                    # 前端依赖 cast_state_changed 事件同步 simTimers 状态
+                    if self.cast_state.status != last_status:
+                        logger.info(f"Device {self.device.display_name} status changed: {last_status} -> {self.cast_state.status}")
+                        last_status = self.cast_state.status
+                        if self._poll_callback:
+                            self._poll_callback(self.device_id, "status_changed")
 
                 # 更新状态（仅在设备返回有效值时更新，避免覆盖已有的正确值）
                 if duration and duration != '00:00:00':

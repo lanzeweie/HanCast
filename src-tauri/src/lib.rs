@@ -3,6 +3,7 @@ mod sidecar;
 use serde::{Deserialize, Serialize};
 use sidecar::SidecarManager;
 use std::sync::{Arc, Mutex};
+use std::fs;
 use std::path::PathBuf;
 use tauri::{
     menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder},
@@ -11,6 +12,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use chrono::Local;
 
 #[cfg(target_os = "windows")]
 use windows::{
@@ -114,6 +116,36 @@ impl WindowConfigState {
 /// 当前投屏 URL 缓存（供托盘菜单使用）
 struct CastUrlState {
     url: Arc<Mutex<String>>,
+}
+
+/// 会话日志：每次启动写入新文件，同时输出到 stderr
+struct SessionLogger {
+    path: PathBuf,
+}
+
+impl SessionLogger {
+    fn new(log_dir: &std::path::Path) -> Self {
+        fs::create_dir_all(log_dir).ok();
+        let path = log_dir.join("hancast.log");
+        // 每次启动清空旧日志
+        fs::write(&path, "").ok();
+        Self { path }
+    }
+
+    fn log(&self, msg: &str) {
+        let ts = Local::now().format("%Y-%m-%d %H:%M:%S");
+        let line = format!("[{}] {}\n", ts, msg);
+        eprint!("{}", line);
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(line.as_bytes())
+            })
+            .ok();
+    }
 }
 
 #[tauri::command]
@@ -559,9 +591,9 @@ async fn get_autostart_msix() -> Result<bool, String> {
 }
 
 /// MSIX 环境下设置开机自启状态（使用 WinRT StartupTask API）
-/// 启用时创建一次性标记文件，用于下次启动时判断是否最小化到托盘
+/// 参数通过 uap10:Parameters="--autostart" 在 AppxManifest.xml 中配置
 #[cfg(target_os = "windows")]
-async fn set_autostart_msix(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+async fn set_autostart_msix(enabled: bool) -> Result<(), String> {
     let task_id = HSTRING::from(STARTUP_TASK_ID);
     let task = StartupTask::GetAsync(&task_id)
         .map_err(|e| format!("获取启动任务失败: {e}"))?
@@ -573,19 +605,11 @@ async fn set_autostart_msix(app: &tauri::AppHandle, enabled: bool) -> Result<(),
             .map_err(|e| format!("请求启用启动任务失败: {e}"))?
             .await
             .map_err(|e| format!("等待启用结果失败: {e}"))?;
-        // 创建一次性标记文件，仅对下一次启动生效
-        let flag_path = app.path().app_data_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".next_start_minimized");
-        let _ = std::fs::write(&flag_path, "1");
+        eprintln!("[Autostart] MSIX 开机自启已启用");
     } else {
         task.Disable()
             .map_err(|e| format!("禁用启动任务失败: {e}"))?;
-        // 禁用自启时清理标记文件（如果存在）
-        let flag_path = app.path().app_data_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".next_start_minimized");
-        let _ = std::fs::remove_file(&flag_path);
+        eprintln!("[Autostart] MSIX 开机自启已禁用");
     }
 
     Ok(())
@@ -616,8 +640,8 @@ async fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
 #[tauri::command]
 async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     if is_store_version() {
-        // MSIX 环境：使用 WinRT StartupTask API
-        set_autostart_msix(&app, enabled).await?;
+        // MSIX 环境：使用 WinRT StartupTask API（参数通过 uap10:Parameters 传递）
+        set_autostart_msix(enabled).await?;
     } else {
         // 非 MSIX 环境：使用 tauri-plugin-autostart
         if enabled {
@@ -674,7 +698,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     let current = get_autostart_state(&app_handle).await;
                     if is_store_version() {
-                        set_autostart_msix(&app_handle, !current).await.ok();
+                        set_autostart_msix(!current).await.ok();
                     } else {
                         if current {
                             app_handle.autolaunch().disable().ok();
@@ -689,6 +713,16 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // 初始化会话日志（每次启动清空旧日志）
+            let log_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join("logs");
+            let logger = SessionLogger::new(&log_dir);
+            logger.log("=== HanCast 启动 ===");
+            app.manage(logger);
+
             // 加载窗口配置
             let config_path = app
                 .path()
@@ -702,6 +736,15 @@ pub fn run() {
             #[cfg(debug_assertions)]
             if let Some(window) = app.get_webview_window("main") {
                 window.open_devtools();
+            }
+
+            // 开机自启检测（必须在窗口显示之前）
+            // 非 MSIX: 通过 --minimized 参数检测（tauri-plugin-autostart 通过注册表传递）
+            // MSIX: 通过 --autostart 参数检测（uap10:Parameters 在 AppxManifest.xml 中配置）
+            let should_start_minimized = std::env::args().any(|a| a == "--autostart" || a == "--minimized");
+
+            if should_start_minimized {
+                eprintln!("[Startup] 检测到启动参数，最小化到托盘");
             }
 
             // 恢复窗口尺寸（窗口默认隐藏，设置好后再显示，避免闪烁）
@@ -719,6 +762,10 @@ pub fn run() {
                     width,
                     height,
                 }));
+
+                // 打印窗口尺寸（启动时一次性记录）
+                let logger = app.state::<SessionLogger>();
+                logger.log(&format!("窗口尺寸: {}x{} px (config: {}x{}, min: {}x{})", width, height, config.width, config.height, MIN_WIDTH, MIN_HEIGHT));
 
                 // 禁用最大化（阻止双击标题栏最大化）
                 window.set_maximizable(false).ok();
@@ -748,38 +795,14 @@ pub fn run() {
                     }
                 });
 
-                // 显示窗口
-                let _ = window.show();
-                let _ = window.set_focus();
+                // 根据启动参数决定是否显示窗口
+                if !should_start_minimized {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
 
             app.manage(window_config_state);
-
-            // 开机自启时最小化到托盘
-            // 非 MSIX: 通过 --minimized 参数检测（tauri-plugin-autostart 通过注册表传递）
-            // MSIX: 通过一次性标记文件检测（StartupTask API 不支持传递参数）
-            let should_start_minimized = if std::env::args().any(|a| a == "--minimized") {
-                true
-            } else if is_store_version() {
-                // MSIX: 检查一次性标记文件（仅对下一次启动生效）
-                let flag_path = app.path().app_data_dir()
-                    .unwrap_or_else(|_| PathBuf::from("."))
-                    .join(".next_start_minimized");
-                if flag_path.exists() {
-                    let _ = std::fs::remove_file(&flag_path);
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if should_start_minimized {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.hide().ok();
-                }
-            }
 
             // Initialize Python sidecar
             let sidecar = SidecarManager::new(app.handle().clone())?;
@@ -824,13 +847,10 @@ pub fn run() {
                     {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                window.set_focus().ok();
-                                window.unminimize().ok();
-                            } else {
-                                window.show().ok();
-                                window.set_focus().ok();
-                            }
+                            // 始终先 show + unminimize，再 set_focus，确保各平台行为一致
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
                         }
                     }
                 })

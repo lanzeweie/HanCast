@@ -32,8 +32,10 @@ class Config:
     def __init__(self):
         self.setting_path = os.path.join(SETTING_DIR, "hancast_setting.json")
         self.settings: Dict = {}
-        self.friendly_name = f"HanCast({platform.node()})"
-        self.version = "2.0.7"
+        # platform.node() 在某些系统上可能返回空字符串，使用 fallback
+        node_name = platform.node() or f"Macast-{uuid.uuid4().hex[:8]}"
+        self.friendly_name = f"HanCast({node_name})"
+        self.version = "2.0.9"
         self.usn = str(uuid.uuid4())
 
         # 确保配置目录存在
@@ -58,6 +60,10 @@ class Config:
             self.settings['usn'] = self.usn
         else:
             self.usn = self.settings['usn']
+
+        # 清理空字符串：如果 friendly_name 为空，丢弃以回退到实例变量默认值
+        if self.settings.get('friendly_name', '') == '':
+            self.settings.pop('friendly_name', None)
 
     def save(self):
         """保存配置"""
@@ -84,7 +90,7 @@ class Config:
         """导出配置为字典"""
         return {
             'usn': self.usn,
-            'friendly_name': self.friendly_name,
+            'friendly_name': self.settings.get('friendly_name', self.friendly_name),
             'version': self.version,
             'media_port': self.media_port,
             'default_device': self.default_device,

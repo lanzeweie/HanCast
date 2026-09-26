@@ -540,11 +540,15 @@ class CommandHandler:
     def _save_settings(self, params: dict) -> None:
         settings = params["settings"]
 
-        # 热更新设备名称：同步到 DLNA 描述服务器（下次 description.xml 请求即生效）
+        # 热更新设备名称：拒绝空字符串（防止用户误删或脏数据写入）
         new_name = settings.get("friendly_name")
-        if new_name and new_name != self.config.get_friendly_name():
+        if new_name == "":
+            return
+
+        if new_name != self.config.get_friendly_name():
             self.dlna_server.friendly_name = new_name
             DLNAHandler.friendly_name = new_name
+            self.config.friendly_name = new_name
             logger.info(f"设备名称已更新: {new_name}")
 
         self.config.update(settings)

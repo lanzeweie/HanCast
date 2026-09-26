@@ -1,7 +1,7 @@
 [package]
 name = "HanCast"
 # version synced from tauri.conf.json
-version = "2.0.7"
+version = "2.1.0"
 description = "HanCast: A cross-platform media casting application (fork of xfangfang/Macast)"
 authors = ["lanzeweie@foxmail.com"]
 edition = "2021"
@@ -25,6 +25,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 base64 = "0.22"
 mime_guess = "2"
+chrono = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

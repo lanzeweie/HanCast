@@ -3,7 +3,7 @@ SSDP 服务
 
 关键行为:
 - 注册 6 个 SSDP 条目 (rootdevice, uuid, device, 3个service)
-- 每 3 秒发送 NOTIFY 广播
+- 每 30 秒发送 NOTIFY 广播（与 CACHE-CONTROL max-age=66 匹配）
 - CACHE-CONTROL: max-age=66
 - 使用 per-interface Sock 类发送多播
 - M-SEARCH 响应通过监听 socket 发送
@@ -197,7 +197,7 @@ class SSDPService:
         # 等待 SSDP 线程初始化
         time.sleep(0.5)
 
-        # 启动 NOTIFY 线程 (每 3 秒广播一次)
+        # 启动 NOTIFY 线程 (每 30 秒广播一次，与 CACHE-CONTROL max-age=66 匹配)
         self._notify_thread = threading.Thread(
             target=self._notify_loop, name="SSDP_NOTIFY_THREAD",
             daemon=True)
@@ -442,11 +442,11 @@ class SSDPService:
             logger.debug(f"Failed to fetch device from NOTIFY: {e}")
 
     def _notify_loop(self):
-        """每 3 秒发送 NOTIFY 广播"""
+        """每 30 秒发送 NOTIFY 广播（UPnP 规范允许最大 255 秒间隔）"""
         while self._running:
             try:
                 self._do_notify()
-                for _ in range(3):
+                for _ in range(30):
                     if not self._running:
                         return
                     time.sleep(1)
@@ -454,7 +454,7 @@ class SSDPService:
                 logger.error(f"NOTIFY error: {e}")
 
     def _do_notify(self):
-        """发送 NOTIFY 广播"""
+        """发送 NOTIFY 广播（每个网卡每条 USN 仅发送一次）"""
         for usn in self._known:
             logger.debug('Sending alive notification for %s' % usn)
             if usn not in self._known:
@@ -474,7 +474,6 @@ class SSDPService:
 
             try:
                 for s in self.sock_list:
-                    s.send_it('\r\n'.join(resp), (SSDP_ADDR, SSDP_PORT))
                     s.send_it('\r\n'.join(resp), (SSDP_ADDR, SSDP_PORT))
                 logger.debug('NOTIFY sent for %s via %d interfaces' %
                              (usn, len(self.sock_list)))

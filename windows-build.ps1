@@ -290,6 +290,14 @@ if ($RebuildSidecar) {
 }
 
 # ============================================================
+#  Step 4.5: 同步根目录 MPV → src-tauri/mpv
+# ============================================================
+
+Write-Step "4.5" "同步 MPV..."
+Copy-Item "mpv" -Destination "src-tauri\mpv" -Recurse -Force
+Write-OK "MPV 已同步到 src-tauri/mpv/"
+
+# ============================================================
 #  Step 5: 前端构建 + Tauri 打包
 # ============================================================
 
@@ -377,7 +385,7 @@ if ($Portable) {
     $srcTauriRoot = "src-tauri"
     Copy-Item "$srcTauriRoot\*.dll" -Destination $portableDir -Force
     Copy-Item "$srcTauriRoot\*.pyd" -Destination $portableDir -Force
-    Copy-Item "$srcTauriRoot\hancast_sidecar" -Destination "$portableDir\hancast_sidecar" -Recurse -Force
+    Copy-Item "hancast-backend\hancast_sidecar" -Destination "$portableDir\hancast_sidecar" -Recurse -Force
     Copy-Item "$srcTauriRoot\certifi" -Destination "$portableDir\certifi" -Recurse -Force
     Copy-Item "$srcTauriRoot\charset_normalizer" -Destination "$portableDir\charset_normalizer" -Recurse -Force
     Copy-Item "$srcTauriRoot\lxml" -Destination "$portableDir\lxml" -Recurse -Force

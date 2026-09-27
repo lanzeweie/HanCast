@@ -90,3 +90,5 @@ scripts/claude-dashboard.bat
 
 # 微软打包
 MSIX/
+
+hancast-backend/mpv_diag.txt

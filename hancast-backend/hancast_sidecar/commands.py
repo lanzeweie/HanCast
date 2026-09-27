@@ -214,7 +214,7 @@ class CommandHandler:
         return self._commands[cmd](params)
 
     def cleanup(self):
-        """清理资源"""
+        """清理资源（退出路径，幂等）"""
         # 停止所有投屏会话
         for session in self.device_sessions.values():
             session.stop()
@@ -222,7 +222,8 @@ class CommandHandler:
         self.ssdp.stop()
         self.dlna_server.stop()
         self.media_server.stop()
-        self.renderer.stop()
+        # shutdown() 用于退出路径，幂等可重复调用；stop() 用于运行时暂停
+        self.renderer.shutdown()
         self.protocol.stop_event_thread()
 
     def _on_device_found(self, device: Device):

@@ -691,7 +691,13 @@ pub fn run() {
                     }
                 }
             } else if event.id() == "quit" {
-                app.exit(0);
+                // 优雅关闭：先通知 sidecar 清理（杀 MPV 等），再退出应用
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let sidecar = app_handle.state::<SidecarManager>();
+                    sidecar.shutdown().await;
+                    app_handle.exit(0);
+                });
             } else if event.id() == "autostart" {
                 // CheckMenuItem 已自动切换 checked 状态，执行实际操作
                 let app_handle = app.clone();

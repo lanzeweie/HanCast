@@ -79,9 +79,19 @@ def main():
     # 检测是否独立运行，如果是则启动主程序并退出
     _launch_main_if_standalone()
 
+    import atexit
     handler = CommandHandler()
 
-    # 优雅退出
+    # atexit 兜底：确保任何退出路径都执行 cleanup（杀 MPV 等）
+    def _atexit_cleanup():
+        try:
+            handler.cleanup()
+        except Exception:
+            pass
+
+    atexit.register(_atexit_cleanup)
+
+    # 优雅退出（信号处理，非 Windows 主要路径）
     def shutdown(signum, frame):
         logger.info("Shutting down...")
         handler.cleanup()
@@ -144,6 +154,8 @@ def main():
 
         print(json.dumps(response, ensure_ascii=False), flush=True)
 
+    # stdin EOF 或 exit 命令后，确保清理完成（atexit 兜底 + 显式调用）
+    handler.cleanup()
     logger.info("HanCast Sidecar exited")
 
 

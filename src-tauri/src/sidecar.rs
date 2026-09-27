@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -105,6 +105,10 @@ pub struct SidecarManager {
     child: Arc<Mutex<Option<CommandChild>>>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next_id: AtomicU64,
+    /// 收到 CommandEvent::Terminated，确认子进程已退出
+    terminated: Arc<AtomicBool>,
+    /// reader_loop 发生错误（事件流中断），不等同于进程退出
+    reader_failed: Arc<AtomicBool>,
     _reader: tauri::async_runtime::JoinHandle<()>,
 }
 
@@ -167,28 +171,47 @@ impl SidecarManager {
         let child = Arc::new(Mutex::new(Some(child)));
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let terminated = Arc::new(AtomicBool::new(false));
+        let reader_failed = Arc::new(AtomicBool::new(false));
 
         // Background task: read CommandEvents and dispatch
         let pending_clone = Arc::clone(&pending);
+        let terminated_clone = Arc::clone(&terminated);
+        let reader_failed_clone = Arc::clone(&reader_failed);
         let reader = tauri::async_runtime::spawn(async move {
-            Self::reader_loop(rx, pending_clone, app).await;
+            Self::reader_loop(rx, pending_clone, terminated_clone, reader_failed_clone, app)
+                .await;
         });
 
         Ok(Self {
             child,
             pending,
             next_id: AtomicU64::new(0),
+            terminated,
+            reader_failed,
             _reader: reader,
         })
     }
 
     /// Background reader: process events from the sidecar's stdout/stderr.
     ///
-    /// When the stream ends (Terminated/Error), drains all pending senders
-    /// with an error response so no caller hangs forever.
+    /// 事件来源（tauri-plugin-shell 2.3.5 源码）：
+    /// - `Terminated`：来自独立的 `child.wait()` 线程，`wait()` 成功返回时发送
+    /// - `Error`：来自管道读取线程的 I/O 错误，或 `wait()` 调用失败
+    ///
+    /// 处理策略：
+    /// - `Terminated` → `terminated = true`，break
+    /// - `Error`      → `reader_failed = true`，不 break。
+    ///   管道读取错误不影响 `wait()` 线程，Terminated 仍会到达；
+    ///   break 会导致无法接收 Terminated，使 shutdown 无法确认退出。
+    ///
+    /// When the stream ends, drains all pending senders with an error response
+    /// so no caller hangs forever.
     async fn reader_loop(
         mut rx: Receiver<CommandEvent>,
         pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
+        terminated: Arc<AtomicBool>,
+        reader_failed: Arc<AtomicBool>,
         app: AppHandle,
     ) {
         while let Some(event) = rx.recv().await {
@@ -229,11 +252,16 @@ impl SidecarManager {
                         "[SidecarManager] Process terminated with code {:?}",
                         status.code
                     );
+                    terminated.store(true, Ordering::SeqCst);
                     break;
                 }
                 CommandEvent::Error(err) => {
+                    // 事件流错误 ≠ 进程退出。不 break：
+                    // reader_loop 一旦退出就无法再接收后续 Terminated 事件，
+                    // 导致 shutdown() 强杀后永远无法确认退出。
+                    // 继续循环，让 rx.recv() 在通道关闭时自然退出。
                     eprintln!("[SidecarManager] Process error: {err}");
-                    break;
+                    reader_failed.store(true, Ordering::SeqCst);
                 }
                 _ => {}
             }
@@ -300,29 +328,80 @@ impl SidecarManager {
             Err(error)
         }
     }
+
+    /// 优雅关闭：发送 exit 命令 → 轮询等待 sidecar 真正退出 → 超时后强制 kill
+    ///
+    /// - `terminated == true`：已收到 Terminated 事件，进程确认退出，跳过 kill
+    /// - `reader_failed == true`：事件流错误，进程状态未知，仍需尝试 kill
+    /// - 超时：强制 kill 后再次轮询 terminated 确认退出
+    ///
+    /// 在应用退出前由 quit 事件调用，不依赖 Drop（Drop 中的异步等待不可靠）。
+    pub async fn shutdown(&self) {
+        // 1. 发送 exit 命令（Python 收到后执行 cleanup 并退出主循环）
+        {
+            let mut guard = self.child.lock().await;
+            if let Some(ref mut child) = *guard {
+                let _ = child.write(b"{\"cmd\":\"exit\"}\n");
+            }
+        }
+
+        // 2. 轮询等待 sidecar 真正退出（reader_loop 置 terminated 标志）
+        let timeout_ms: u64 = if cfg!(target_os = "windows") { 3000 } else { 1000 };
+        let poll_interval = std::time::Duration::from_millis(50);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+
+        while !self.terminated.load(Ordering::SeqCst) {
+            if std::time::Instant::now() >= deadline {
+                eprintln!("[SidecarManager] shutdown: timeout waiting for sidecar exit");
+                break;
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+
+        // 3. 只有 terminated 才跳过 kill；reader_failed 时进程状态未知，仍需 kill
+        if self.reader_failed.load(Ordering::SeqCst) {
+            eprintln!("[SidecarManager] shutdown: reader failed, sidecar state unknown");
+        }
+        if !self.terminated.load(Ordering::SeqCst) {
+            let mut guard = self.child.lock().await;
+            if let Some(child) = guard.take() {
+                eprintln!("[SidecarManager] shutdown: force killing sidecar");
+                if let Err(e) = child.kill() {
+                    // kill 失败：进程可能已退出，也可能无法终止
+                    eprintln!("[SidecarManager] shutdown: kill failed: {e}");
+                }
+            }
+            // 4. kill 后再次确认退出（最多等 500ms）
+            let kill_deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(500);
+            while !self.terminated.load(Ordering::SeqCst)
+                && std::time::Instant::now() < kill_deadline
+            {
+                tokio::time::sleep(poll_interval).await;
+            }
+            if !self.terminated.load(Ordering::SeqCst) {
+                eprintln!("[SidecarManager] shutdown: sidecar not confirmed exited after kill");
+            }
+        } else {
+            // 已确认退出，释放 child 引用
+            let mut guard = self.child.lock().await;
+            let _ = guard.take();
+        }
+    }
 }
 
 impl Drop for SidecarManager {
     fn drop(&mut self) {
-        // 1. 终止 reader 任务，避免 JoinHandle 泄漏
+        // Drop 作为兜底：不使用 async runtime（进程退出时不可靠）
+        // 优雅关闭由 app 退出前的显式 shutdown 流程负责
         self._reader.abort();
 
-        // 2. 优雅关闭子进程：发送 exit 命令 → 等待 → kill
-        let child = Arc::clone(&self.child);
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new();
-            if let Ok(rt) = rt {
-                rt.block_on(async {
-                    let mut guard = child.lock().await;
-                    if let Some(ref mut child) = *guard {
-                        let _ = child.write(b"{\"cmd\":\"exit\"}\n");
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    if let Some(child) = guard.take() {
-                        let _ = child.kill();
-                    }
-                });
+        // 同步杀子进程 — 不等待、不发命令（可能已关闭）
+        if let Ok(mut guard) = self.child.try_lock() {
+            if let Some(child) = guard.take() {
+                eprintln!("[SidecarManager] Drop: killing sidecar process");
+                let _ = child.kill();
             }
-        });
+        }
     }
 }

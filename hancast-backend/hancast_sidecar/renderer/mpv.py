@@ -5,6 +5,7 @@ MPV 渲染器
 - 移除 GUI 回调
 - 移除 cherrypy 依赖
 - 简化为纯播放器控制
+- 进程生命周期: start_mpv 线程持有 Popen 对象，stop()/shutdown() 通过 proc_lock 安全终止
 """
 
 import os
@@ -23,8 +24,34 @@ from .base import Renderer
 logger = logging.getLogger("hancast.mpv")
 
 if os.name == 'nt':
+    import ctypes
+    import ctypes.wintypes
     import _winapi
     from multiprocessing.connection import PipeConnection
+
+    # Windows Job Object API constants
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    JobObjectExtendedLimitInformation = 9
+
+    # 显式声明 argtypes/restype：64 位 Windows 下 HANDLE 是指针大小，
+    # ctypes 默认 restype=c_int 会截断句柄，必须显式设为 HANDLE
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    _kernel32.CreateJobObjectW.argtypes = [
+        ctypes.c_void_p, ctypes.wintypes.LPCWSTR]
+    _kernel32.CreateJobObjectW.restype = ctypes.wintypes.HANDLE
+
+    _kernel32.SetInformationJobObject.argtypes = [
+        ctypes.wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+        ctypes.wintypes.DWORD]
+    _kernel32.SetInformationJobObject.restype = ctypes.wintypes.BOOL
+
+    _kernel32.AssignProcessToJobObject.argtypes = [
+        ctypes.wintypes.HANDLE, ctypes.wintypes.HANDLE]
+    _kernel32.AssignProcessToJobObject.restype = ctypes.wintypes.BOOL
+
+    _kernel32.CloseHandle.argtypes = [ctypes.wintypes.HANDLE]
+    _kernel32.CloseHandle.restype = ctypes.wintypes.BOOL
 
 
 class ObserveProperty(Enum):
@@ -59,7 +86,12 @@ class MPVRenderer(Renderer):
         self.ipc_running = False
         self.ipc_once_connected = False
         self.command_lock = threading.Lock()
+        self.proc_lock = threading.Lock()  # 保护 self.proc 的并发访问
         self._replacing_file = False  # loadfile replace 期间抑制 end-file 状态推送
+        self._job_handle = None  # Windows Job Object handle
+        self._stopping = False  # 停止请求标志：start_mpv 据此决定是否创建新进程
+
+    # ── 媒体控制 ──
 
     def set_media_stop(self):
         self.send_command(['stop'])
@@ -122,6 +154,8 @@ class MPVRenderer(Renderer):
         :param data: range(0.01 - 100)
         """
         self.send_command(['set_property', 'speed', data])
+
+    # ── IPC 观察 ──
 
     def set_observe(self):
         """Set several property that needed observe"""
@@ -199,9 +233,6 @@ class MPVRenderer(Renderer):
             if res['event'] == 'end-file':
                 self.playing = False
                 if self._replacing_file:
-                    # loadfile replace 触发的 end-file 是正常文件切换，
-                    # 不应设置 STOPPED 状态，否则 DLNA 控制器收到 STOPPED
-                    # 事件后可能重发 SetAVTransportURI，导致播放归零
                     logger.debug("end-file during file replacement, skip set_state_stop")
                     self._replacing_file = False
                 elif 'reason' not in res:
@@ -228,13 +259,16 @@ class MPVRenderer(Renderer):
         else:
             logger.debug(res)
 
+    # ── IPC 通信 ──
+
     def send_command(self, command):
         """Sending command to mpv"""
         logger.info(f"MPV CMD: {command}")
-        # 检查 MPV 进程是否存活
-        if self.proc and self.proc.poll() is not None:
-            logger.error(f"MPV 进程已退出 (code={self.proc.returncode})，跳过命令")
-            return False
+        with self.proc_lock:
+            proc = self.proc
+            if proc is None or proc.poll() is not None:
+                logger.error(f"MPV 进程不可用，跳过命令: {command[0] if command else '?'}")
+                return False
         data = {"command": command}
         msg = json.dumps(data) + '\n'
         with self.command_lock:
@@ -306,10 +340,98 @@ class MPVRenderer(Renderer):
             self.ipc_sock.close()
             logger.info("mpv ipc stopped")
 
+    # ── MPV 进程管理 ──
+
+    def _create_job_object_windows(self):
+        """Windows: 创建 Job Object（KILL_ON_JOB_CLOSE），确保进程树随持有者终止"""
+        if os.name != 'nt':
+            return None
+        try:
+            job = _kernel32.CreateJobObjectW(None, None)
+            if not job:
+                logger.error("CreateJobObjectW failed, err=%d",
+                             ctypes.get_last_error())
+                return None
+
+            class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", ctypes.wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", ctypes.wintypes.DWORD),
+                    ("Affinity", ctypes.POINTER(ctypes.c_ulong)),
+                    ("PriorityClass", ctypes.wintypes.DWORD),
+                    ("SchedulingClass", ctypes.wintypes.DWORD),
+                ]
+
+            class IO_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("ReadOperationCount", ctypes.c_uint64),
+                    ("WriteOperationCount", ctypes.c_uint64),
+                    ("OtherOperationCount", ctypes.c_uint64),
+                    ("ReadTransferCount", ctypes.c_uint64),
+                    ("WriteTransferCount", ctypes.c_uint64),
+                    ("OtherTransferCount", ctypes.c_uint64),
+                ]
+
+            class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                    ("IoInfo", IO_COUNTERS),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+            if not _kernel32.SetInformationJobObject(
+                job, JobObjectExtendedLimitInformation,
+                ctypes.byref(info), ctypes.sizeof(info),
+            ):
+                logger.error("SetInformationJobObject failed, err=%d",
+                             ctypes.get_last_error())
+                _kernel32.CloseHandle(job)
+                return None
+
+            logger.info("Windows Job Object created (KILL_ON_JOB_CLOSE)")
+            return job
+        except Exception as e:
+            logger.error(f"Failed to create Job Object: {e}")
+            return None
+
+    def _assign_to_job_windows(self, proc) -> bool:
+        """将 MPV 进程加入 Job Object。返回 True 表示保护已建立。
+        API 调用在 proc_lock 内执行，防止与 _close_job_object 的
+        句柄关闭操作并发使用同一句柄。"""
+        if os.name != 'nt':
+            return False
+        with self.proc_lock:
+            job = self._job_handle
+            if job is None:
+                return False
+            try:
+                ok = _kernel32.AssignProcessToJobObject(job, int(proc._handle))
+                if not ok:
+                    err = ctypes.get_last_error()
+                    logger.error(
+                        "AssignProcessToJobObject failed (err=%d), "
+                        "MPV NOT protected by Job Object", err)
+                    return False
+                logger.info(f"MPV assigned to Job Object (pid={proc.pid})")
+                return True
+            except Exception as e:
+                logger.error(f"AssignProcessToJobObject exception: {e}")
+                return False
+
     def start_mpv(self):
         """Start mpv thread"""
         error_time = 3
-        while self.running and error_time > 0:
+        while self.running and not self._stopping and error_time > 0:
             self.set_state_speed('1')
             # mpv default params
             params = [
@@ -334,16 +456,51 @@ class MPVRenderer(Renderer):
             # start mpv
             logger.info("mpv starting")
             try:
-                self.proc = subprocess.Popen(
-                    params,
+                popen_kwargs = dict(
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.PIPE)
-                self.proc.communicate()
+                    stderr=subprocess.DEVNULL,  # 不捕获 stderr，避免管道阻塞
+                    stdin=subprocess.PIPE,
+                )
+                if os.name == 'nt':
+                    popen_kwargs['creationflags'] = (
+                        subprocess.CREATE_NO_WINDOW  # 不创建控制台窗口
+                    )
+
+                # _stopping 检查必须在 proc_lock 内，与 Popen 原子化：
+                # stop() 先设 _stopping 再拿锁，此处拿锁后检查，
+                # 保证 stop() 要么在 Popen 前看到无进程、要么在此处看到停止标志
+                with self.proc_lock:
+                    if self._stopping:
+                        break
+                    self.proc = subprocess.Popen(params, **popen_kwargs)
+                    proc = self.proc
+
+                # 创建后再次检查：stop() 可能在锁释放后、此处之前执行
+                if self._stopping:
+                    with self.proc_lock:
+                        p = self.proc
+                        self.proc = None
+                    if p is not None:
+                        try:
+                            p.kill()
+                            p.wait(timeout=2.0)
+                        except Exception:
+                            pass
+                    break
+
+                # Windows: 将 MPV 加入 Job Object（进程树随 sidecar 终止）
+                self._assign_to_job_windows(proc)
+
+                # 等待 MPV 退出（轮询标志，stop() 可随时中断）
+                while self.running and not self._stopping and proc.poll() is None:
+                    try:
+                        proc.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        pass
             except Exception as e:
                 logger.error(e)
             logger.info("mpv stopped")
-            if self.running and not self.ipc_once_connected:
+            if self.running and not self._stopping and not self.ipc_once_connected:
                 # There should be a problem with the MPV startup parameters
                 time.sleep(1)
                 error_time -= 1
@@ -351,26 +508,123 @@ class MPVRenderer(Renderer):
         if error_time <= 0:
             logger.error("mpv cannot start")
 
+    # ── 生命周期 ──
+
     def start(self):
         """Start mpv and mpv ipc"""
         super().start()
         logger.info("starting mpv and mpv ipc")
+        # Windows: 创建 Job Object，保护 MPV 进程树
+        if os.name == 'nt':
+            self._job_handle = self._create_job_object_windows()
         self.mpv_thread = threading.Thread(target=self.start_mpv, daemon=True)
         self.mpv_thread.start()
         self.ipc_thread = threading.Thread(target=self.start_ipc, daemon=True)
         self.ipc_thread.start()
 
     def stop(self):
-        """Stop mpv and mpv ipc"""
+        """Stop mpv and mpv ipc — 正常关闭路径（优雅优先）"""
+        self._stopping = True
         super().stop()
         logger.info("stopping mpv and mpv ipc")
-        # stop mpv
-        self.send_command(['quit'])
-        if self.proc is not None:
-            self.proc.terminate()
-        try:
-            os.waitpid(-1, 1)
-        except Exception as e:
-            logger.error(e)
-        # stop mpv ipc
+
+        # 1. 停止 IPC 接收循环
         self.ipc_running = False
+
+        # 2. 通过 IPC 发送 quit（best-effort）
+        self.send_command(['quit'])
+
+        # 3. 等待 MPV 正常退出，超时后强制终止
+        self._terminate_mpv(graceful=True)
+
+        # 4. 等待后台线程结束
+        self._join_threads()
+
+        # 5. 关闭 Job Object（Windows: 释放后 OS 自动终止残留进程）
+        self._close_job_object()
+
+    def shutdown(self):
+        """外部强制关闭（Rust SidecarManager 调用）— 幂等，检查实际资源而非 running 标志"""
+        self._stopping = True
+        self.running = False
+        self.ipc_running = False
+
+        logger.info("MPV shutdown requested")
+
+        # 尝试 IPC quit（best-effort）
+        try:
+            self.send_command(['quit'])
+        except Exception:
+            pass
+
+        # 强制终止并回收进程
+        self._terminate_mpv(graceful=False)
+
+        # 等待线程
+        self._join_threads()
+
+        # 关闭 Job Object
+        self._close_job_object()
+
+    def _terminate_mpv(self, graceful: bool):
+        """统一的进程终止逻辑：优雅等待（可选）→ kill → wait 回收。
+        由 stop() 和 shutdown() 共用，确保所有路径都正确回收进程。"""
+        with self.proc_lock:
+            proc = self.proc
+        if proc is None:
+            return
+
+        if proc.poll() is not None:
+            # 进程已退出，只需回收（wait 清除僵尸状态）
+            try:
+                proc.wait(timeout=0.5)
+            except Exception:
+                pass
+            return
+
+        if graceful:
+            # 先等待正常退出
+            try:
+                proc.wait(timeout=1.0)
+                return  # 正常退出
+            except subprocess.TimeoutExpired:
+                logger.warning("MPV did not exit gracefully, force killing")
+
+        # 强制终止
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+        # 回收进程（kill 后必须 wait，否则产生僵尸进程）
+        try:
+            proc.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            logger.error("MPV did not exit after kill (pid=%s)", proc.pid)
+
+    def _join_threads(self):
+        """等待后台线程结束。超时后记录错误（线程可能仍在执行）。"""
+        if self.mpv_thread is not None and self.mpv_thread.is_alive():
+            self.mpv_thread.join(timeout=2.0)
+            if self.mpv_thread.is_alive():
+                logger.error("mpv_thread did not exit within 2s (daemon thread)")
+        if self.ipc_thread is not None and self.ipc_thread.is_alive():
+            self.ipc_thread.join(timeout=2.0)
+            if self.ipc_thread.is_alive():
+                logger.error("ipc_thread did not exit within 2s (daemon thread)")
+
+    def _close_job_object(self):
+        """关闭 Windows Job Object（KILL_ON_JOB_CLOSE：关闭后 OS 终止 Job 内所有进程）。
+        取走、置空、CloseHandle 全部在 proc_lock 内完成，
+        防止与 _assign_to_job_windows 的 API 调用并发使用同一句柄。"""
+        if os.name != 'nt':
+            return
+        with self.proc_lock:
+            job = self._job_handle
+            self._job_handle = None
+            if job is not None:
+                if not _kernel32.CloseHandle(job):
+                    logger.error("CloseHandle(job) failed, err=%d",
+                                 ctypes.get_last_error())
+                else:
+                    logger.debug("Job Object closed")

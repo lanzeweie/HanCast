@@ -29,7 +29,7 @@ def setup_logger(
     name: str = "hancast",
     level: int = logging.INFO,
     log_file: Optional[str] = None,
-    max_bytes: int = 5 * 1024 * 1024,  # 5MB per file
+    max_bytes: int = 2 * 1024 * 1024,  # 2MB per file
     backup_count: int = 3,              # 保留 3 个备份
 ) -> logging.Logger:
     """
@@ -42,7 +42,7 @@ def setup_logger(
         name:       根 logger 名称（默认 'hancast'）
         level:      日志级别（默认 INFO）
         log_file:   日志文件路径（默认 APPDATA/HanCast/logs/hancast.log）
-        max_bytes:  单个日志文件最大字节数（默认 5MB）
+        max_bytes:  单个日志文件最大字节数（默认 2MB）
         backup_count: 保留的旧日志文件数量（默认 3）
     """
     global _initialized

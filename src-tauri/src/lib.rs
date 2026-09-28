@@ -754,6 +754,7 @@ pub fn run() {
             }
 
             // 恢复窗口尺寸（窗口默认隐藏，设置好后再显示，避免闪烁）
+            let mut window_size_msg: Option<String> = None;
             if let Some(window) = app.get_webview_window("main") {
                 let config = window_config_state.get_config();
 
@@ -770,8 +771,10 @@ pub fn run() {
                 }));
 
                 // 打印窗口尺寸（启动时一次性记录）
+                let msg = format!("窗口尺寸: {}x{} px (config: {}x{}, min: {}x{})", width, height, config.width, config.height, MIN_WIDTH, MIN_HEIGHT);
                 let logger = app.state::<SessionLogger>();
-                logger.log(&format!("窗口尺寸: {}x{} px (config: {}x{}, min: {}x{})", width, height, config.width, config.height, MIN_WIDTH, MIN_HEIGHT));
+                logger.log(&msg);
+                window_size_msg = Some(msg);
 
                 // 禁用最大化（阻止双击标题栏最大化）
                 window.set_maximizable(false).ok();
@@ -813,6 +816,15 @@ pub fn run() {
             // Initialize Python sidecar
             let sidecar = SidecarManager::new(app.handle().clone())?;
             app.manage(sidecar);
+
+            // 同步启动窗口尺寸到 sidecar 日志（导出的日志中可见）
+            if let Some(msg) = window_size_msg {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let sidecar = handle.state::<SidecarManager>();
+                    let _ = sidecar.send_command("log", serde_json::json!({"msg": msg})).await;
+                });
+            }
 
             // Initialize cast URL state
             let cast_url = Arc::new(Mutex::new(String::new()));

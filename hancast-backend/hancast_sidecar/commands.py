@@ -163,6 +163,9 @@ class CommandHandler:
             # MPV 管理
             "check_mpv": self._check_mpv,
             "set_mpv_path": self._set_mpv_path,
+
+            # 日志透传（Rust 端写入 sidecar 日志，随导出日志一起可见）
+            "log": self._log,
         }
 
         # 设置回调
@@ -212,6 +215,10 @@ class CommandHandler:
         if cmd not in self._commands:
             raise ValueError(f"Unknown command: {cmd}")
         return self._commands[cmd](params)
+
+    def _log(self, params: Dict[str, Any]) -> None:
+        """Rust 端透传日志消息"""
+        logger.info(str(params.get("msg", "")))
 
     def cleanup(self):
         """清理资源（退出路径，幂等）"""

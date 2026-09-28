@@ -294,6 +294,8 @@ if ($RebuildSidecar) {
 # ============================================================
 
 Write-Step "4.5" "同步 MPV..."
+# 先删除旧目录，避免 Copy-Item 在目标已存在时把源目录套娃进去（src-tauri/mpv/mpv）
+Remove-Item "src-tauri\mpv" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item "mpv" -Destination "src-tauri\mpv" -Recurse -Force
 Write-OK "MPV 已同步到 src-tauri/mpv/"
 
@@ -390,7 +392,8 @@ if ($Portable) {
     Copy-Item "$srcTauriRoot\charset_normalizer" -Destination "$portableDir\charset_normalizer" -Recurse -Force
     Copy-Item "$srcTauriRoot\lxml" -Destination "$portableDir\lxml" -Recurse -Force
 
-    # 复制 MPV
+    # 复制 MPV（先删旧目录，防止套娃 src-tauri/mpv/mpv）
+    Remove-Item "$portableDir\mpv" -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item "$releaseDir\mpv" -Destination "$portableDir\mpv" -Recurse -Force
 
     $portableSize = (Get-ChildItem $portableDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB

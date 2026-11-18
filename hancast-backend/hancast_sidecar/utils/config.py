@@ -25,6 +25,20 @@ elif sys.platform == 'darwin':
 else:
     SETTING_DIR = os.path.join(os.path.expanduser('~'), '.config', 'hancast')
 
+# 小电视设备名前缀。B 站客户端要求 friendlyName 必须以「我的小电视」开头，
+# 后面可以带自定义后缀（我的小电视（客厅Mac））；前缀被替换或删掉就会被降级成普通 DLNA。
+NVA_NAME_PREFIX = '我的小电视'
+
+# 投屏协议：本机以哪套身份对外。
+#   dlna → 通用渲染器（HanCast 品牌 + 3 个标准服务，SSDP 6 条）
+#   nva  → B 站小电视（Bilibili 品牌 + NirvanaControl，4 个服务，SSDP 7 条）
+# 两者共用同一个 UDN 与同一份 /description.xml，切换只换身份内容，不多开设备。
+PROTOCOL_DLNA = 'dlna'
+PROTOCOL_NVA = 'nva'
+# 兜底值：配置里读不到 protocol 时用它（首次安装/文件损坏）。写死在这里，
+# 不跟随上面的常量走；用户一旦在设置页选过，保存的值优先。
+DEFAULT_PROTOCOL = 'dlna'
+
 
 class Config:
     """配置管理类"""
@@ -91,6 +105,7 @@ class Config:
         return {
             'usn': self.usn,
             'friendly_name': self.settings.get('friendly_name', self.friendly_name),
+            'protocol': self.get_protocol(),
             'version': self.version,
             'media_port': self.media_port,
             'default_device': self.default_device,
@@ -125,6 +140,43 @@ class Config:
             self.usn = str(uuid.uuid4())
             self.settings['usn'] = self.usn
         return self.usn
+
+    def get_nva_name(self) -> str:
+        """设备名：「我的小电视」必须作为前缀，后可加自定义后缀。
+
+        设备只有一台，这个名字同时用于 description.xml 的 friendlyName 和首页。
+        B 站客户端认的是这个名字的前缀，前缀被换掉（例如写成「云视听小电视」
+        或「客厅的电脑」）就会被降级成普通 DLNA，丢弹幕、切集、大会员画质。
+        manufacturer 是硬校验，由 nva.constants.DEVICE_BRAND 固定成
+        Bilibili Inc.，不随这里变。
+
+        自定义名字的来源规则：
+        - 优先 settings.nva_name，为空时回退 settings.friendly_name
+        - 去首尾空白后为空           → 我的小电视
+        - 以「我的小电视」开头        → 原样使用（已经自带前缀）
+        - 其他                      → 一律当后缀，拼成 我的小电视（xxx）
+        """
+        raw = self.settings.get('nva_name') or self.get_friendly_name()
+        raw = str(raw or '').strip()
+        if not raw:
+            return NVA_NAME_PREFIX
+        if raw.startswith(NVA_NAME_PREFIX):
+            return raw
+        return f'{NVA_NAME_PREFIX}（{raw}）'
+
+    def get_protocol(self) -> str:
+        """当前投屏协议；未知值一律回退默认，避免设备没有可用身份。"""
+        value = str(self.settings.get('protocol') or '').strip().lower()
+        if value in (PROTOCOL_DLNA, PROTOCOL_NVA):
+            return value
+        return DEFAULT_PROTOCOL
+
+    def set_protocol(self, protocol: str) -> str:
+        """写入投屏协议；非法值按 DLNA 处理，保证只会落在两套身份之一。"""
+        value = str(protocol or '').strip().lower()
+        value = value if value == PROTOCOL_NVA else PROTOCOL_DLNA
+        self.settings['protocol'] = value
+        return value
 
     # ── 设备隐藏管理 ──
 

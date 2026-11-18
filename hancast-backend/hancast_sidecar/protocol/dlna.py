@@ -136,6 +136,8 @@ class DLNAProtocol:
 
         # 回调函数 (必须在 init_state 之前初始化)
         self._on_state_change: Optional[Callable[[str, any], None]] = None
+        # 附加状态监听器（如 NVA 广播）：与主回调并存，互不覆盖
+        self._state_listeners: List[Callable[[str, any], None]] = []
 
         # 设备确认 (Device Guard)
         self._device_guard = None
@@ -171,8 +173,21 @@ class DLNAProtocol:
         self._device_guard = guard
 
     def set_on_state_change(self, callback):
-        """设置状态变化回调函数"""
+        """设置状态变化回调函数（主回调，兼容旧调用）"""
         self._on_state_change = callback
+
+    def add_state_listener(self, listener):
+        """追加状态监听器
+
+        主回调只有一个（前端事件占用），其他消费者用监听器列表追加，
+        互不覆盖：NVA 需要把同样的状态翻译成电视端广播。
+        """
+        if listener not in self._state_listeners:
+            self._state_listeners.append(listener)
+
+    def remove_state_listener(self, listener):
+        if listener in self._state_listeners:
+            self._state_listeners.remove(listener)
 
     def init_state(self):
         """初始化状态"""
@@ -610,6 +625,13 @@ class DLNAProtocol:
             if self._on_state_change:
                 self._on_state_change(name, value)
 
+            # 附加监听器逐个通知；单个监听器出错不能影响推送
+            for listener in list(self._state_listeners):
+                try:
+                    listener(name, value)
+                except Exception as e:
+                    logger.error(f"state listener error: {e}")
+
         # update other states
         if name in self.state_list and self.state_list[name].value != value:
             self.state_list[name].value = value
@@ -698,6 +720,9 @@ class DLNAProtocol:
         if self._renderer:
             # 先设置标题，再加载 URL，确保 Lua 脚本在 file-loaded 之前收到标题
             self._renderer.set_media_title(title)
+            # http-header-fields 是 mpv 全局属性，NVA 会话设过 B 站 Referer/UA，
+            # 普通 DLNA 投屏前必须清掉，否则请求会带上无关的防盗链头
+            self._renderer.set_media_http_headers({})
             self._renderer.set_media_url(uri)
             self._renderer.set_media_resume()
         return {}

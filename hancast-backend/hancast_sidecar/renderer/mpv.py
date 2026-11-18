@@ -65,6 +65,32 @@ class ObserveProperty(Enum):
     sub = 8
 
 
+def _start_option(start) -> str:
+    """把起播位置转成 loadfile 的 start 选项。
+
+    loadfile 的参数位是 url [flags [index [options]]]：start 必须放进第 4 位的
+    options 里，写成第 3 位会被当成 index 解析，报 "The loadfile option must be
+    an integer"，整条命令被拒（表现为黑屏）。
+    接受整数秒、"90"、"00:01:30" 三种写法；无法解释的一律从头播放。
+    """
+    if start is None:
+        return ""
+    if isinstance(start, (int, float)):
+        return f"start={int(start)}" if start > 0 else ""
+
+    text = str(start).strip()
+    if not text:
+        return ""
+    if ":" in text:
+        # 时间串交给 mpv 自己解析（已验证 start=00:01:30 可用）
+        return "" if text.strip("0:") == "" else f"start={text}"
+    try:
+        seconds = int(float(text))
+    except ValueError:
+        return ""
+    return f"start={seconds}" if seconds > 0 else ""
+
+
 class MPVRenderer(Renderer):
     """MPV 渲染器实现"""
 
@@ -115,19 +141,37 @@ class MPVRenderer(Renderer):
         self.set_media_text(f'Mute: {data}')
 
     def set_media_url(self, url, start="0"):
-        """ data : string """
+        """ data : string
+
+        :param start: 起播位置：整数秒、"90" 或 "00:01:30"，0 表示从头
+        """
         # 标记正在替换文件，抑制 end-file 事件中的 set_state_stop()
         # 防止 DLNA 控制器收到 STOPPED 后重发 SetAVTransportURI 导致播放归零
+        # 电视端切清晰度/切集也是同一条路径
         self._replacing_file = True
 
         # 在 loadfile 之前发送 script-message，确保 Lua 脚本在 file-loaded 之前收到标题
         if self.title and self.title != "HanCast":
             self.send_command(['script-message', 'set-hancast-title', self.title])
 
-        if start and start != "0":
-            self.send_command(['loadfile', url, 'replace', f'start={start}'])
+        start_option = _start_option(start)
+        if start_option:
+            self.send_command(['loadfile', url, 'replace', '-1', start_option])
         else:
             self.send_command(['loadfile', url, 'replace'])
+
+    def audio_add(self, url: str):
+        """追加音轨：B 站 DASH 把音视频拆成两路，文件加载后单独挂进来"""
+        self.send_command(['audio-add', url, 'select'])
+
+    def set_media_http_headers(self, headers: dict):
+        """设置后续网络请求附带的 HTTP 头，传空 dict 清除。
+
+        走 mpv 全局属性而不是 loadfile 的 per-file options：DASH 音轨由
+        audio-add 单独加载，per-file options 对它不生效。
+        """
+        value = ",".join(f"{key}: {val}" for key, val in (headers or {}).items())
+        self.send_command(['set_property', 'http-header-fields', value])
 
     def set_media_title(self, data):
         """ data : string """

@@ -569,6 +569,15 @@ async fn export_logs(app: tauri::AppHandle) -> Result<bool, String> {
 /// 托盘菜单项：复制当前投屏地址（固定文本，有 URL 时可点击）
 const CAST_URL_LABEL: &str = "复制当前投屏地址";
 
+/// 托盘菜单里显示的投屏协议（只读，切换只在设置页进行）
+fn protocol_menu_label(protocol: &str) -> String {
+    match protocol {
+        "dlna" => "投屏协议：DLNA".to_string(),
+        "nva" => "投屏协议：哔哩必连".to_string(),
+        _ => "投屏协议：—".to_string(),
+    }
+}
+
 /// MSIX StartupTask ID（与 AppxManifest.xml 中的 TaskId 一致）
 const STARTUP_TASK_ID: &str = "HanCastStartup";
 
@@ -833,6 +842,9 @@ pub fn run() {
             });
 
             // Build tray menu
+            let protocol_item = MenuItemBuilder::with_id("protocol", protocol_menu_label(""))
+                .enabled(false)
+                .build(app)?;
             let cast_url_item = MenuItemBuilder::with_id("copy_cast_url", CAST_URL_LABEL)
                 .enabled(false)
                 .build(app)?;
@@ -844,6 +856,7 @@ pub fn run() {
             let quit = MenuItemBuilder::with_id("quit", "退出")
                 .build(app)?;
             let menu = MenuBuilder::new(app)
+                .item(&protocol_item)
                 .item(&cast_url_item)
                 .item(&show)
                 .item(&autostart_item)
@@ -922,37 +935,51 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let mut last_url = String::new();
                 let mut last_autostart = get_autostart_state(&app_handle).await;
+                let mut last_protocol = String::new();
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-                    // Call sidecar to get current cast URL
+                    // 一次 IPC 同时取 URL 与协议，避免每秒两条 stdin/stdout 往返
                     let sidecar = app_handle.state::<SidecarManager>();
-                    let new_url = match sidecar
+                    let snapshot = sidecar
                         .send_command("get_cast_url", serde_json::json!({}))
                         .await
-                    {
-                        Ok(val) => val
-                            .get("url")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        Err(_) => String::new(),
-                    };
+                        .unwrap_or(serde_json::Value::Null);
+                    let new_url = snapshot
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    // 协议只用于托盘显示，切换在设置页触发；取不到时沿用上一次的值
+                    let cur_protocol = snapshot
+                        .get("protocol")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| last_protocol.clone());
 
                     let cur_autostart = get_autostart_state(&app_handle).await;
                     let url_changed = new_url != last_url;
                     let autostart_changed = cur_autostart != last_autostart;
+                    let protocol_changed = cur_protocol != last_protocol;
 
                     // Only update menu when something changed
-                    if url_changed || autostart_changed {
+                    if url_changed || autostart_changed || protocol_changed {
                         last_url = new_url.clone();
                         last_autostart = cur_autostart;
+                        last_protocol = cur_protocol.clone();
                         // Update state for clipboard copy
                         if let Some(state) = app_handle.try_state::<CastUrlState>() {
                             *state.url.lock().unwrap() = new_url.clone();
                         }
                         // Update tray menu item label
                         if let Some(tray) = app_handle.tray_by_id(&tray_id) {
+                            let protocol_item = MenuItemBuilder::with_id(
+                                "protocol",
+                                protocol_menu_label(&cur_protocol),
+                            )
+                            .enabled(false)
+                            .build(&app_handle)
+                            .unwrap();
                             let new_item = MenuItemBuilder::with_id(
                                 "copy_cast_url",
                                 CAST_URL_LABEL,
@@ -974,6 +1001,7 @@ pub fn run() {
                                 .build(&app_handle)
                                 .unwrap();
                             let new_menu = MenuBuilder::new(&app_handle)
+                                .item(&protocol_item)
                                 .item(&new_item)
                                 .item(&show_item)
                                 .item(&autostart_item)

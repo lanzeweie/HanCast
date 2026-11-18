@@ -60,6 +60,17 @@ class Renderer:
         """ data : bool """
         pass
 
+    def audio_add(self, url: str):
+        """ 追加音轨 (DASH 音视频分离时使用) """
+        logger.warning(f"{self.__class__.__name__} 未实现 audio_add，DASH 音轨会被丢弃")
+
+    def set_media_http_headers(self, headers: dict):
+        """ 设置后续网络请求附带的 HTTP 头, 空 dict 表示清除 """
+        # 清空是常规动作（每次切换播放源都会调用），只有设头才是能力缺失
+        if headers:
+            logger.warning(
+                f"{self.__class__.__name__} 未实现 set_media_http_headers，请求头被忽略")
+
     def set_media_url(self, url: str, start: str = "0"):
         """
         :param url:

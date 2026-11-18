@@ -13,6 +13,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings>({
     usn: '',
     friendly_name: 'HanCast',
+    protocol: 'dlna',
     version: '2.1.0',
     media_port: 8080,
     default_device: null,
@@ -49,13 +50,16 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function saveSettings(patch: Partial<AppSettings>) {
+  /** 保存设置；返回 false 表示后端写入失败，调用方可据此回滚本地状态 */
+  async function saveSettings(patch: Partial<AppSettings>): Promise<boolean> {
     loading.value = true
     try {
       await apiSaveSettings(patch)
       settings.value = { ...settings.value, ...patch }
+      return true
     } catch (err) {
       console.error('Failed to save settings:', err)
+      return false
     } finally {
       loading.value = false
     }

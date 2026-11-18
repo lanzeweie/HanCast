@@ -2,7 +2,8 @@
 SSDP 服务
 
 关键行为:
-- 注册 6 个 SSDP 条目 (rootdevice, uuid, device, 3个service)
+- 单台设备按当前投屏协议注册条目：NVA 7 条（多一条 NirvanaControl），DLNA 6 条；
+  LOCATION 全部指向同一份 /description.xml
 - 每 30 秒发送 NOTIFY 广播（与 CACHE-CONTROL max-age=66 匹配）
 - CACHE-CONTROL: max-age=66
 - 使用 per-interface Sock 类发送多播
@@ -19,6 +20,8 @@ from email.utils import formatdate
 from lxml import etree
 from typing import Dict, List, Optional, Callable
 from .models.device import Device
+from .protocol.nva.constants import SERVICE_TYPE as NVA_SERVICE_TYPE
+from .utils.config import DEFAULT_PROTOCOL, PROTOCOL_NVA
 
 logger = logging.getLogger("hancast.ssdp")
 
@@ -77,6 +80,8 @@ class SSDPService:
         self._friendly_name = friendly_name
         self._port = port
         self._usn = usn or f"uuid:{self._generate_uuid()}"
+        # 与 Config.DEFAULT_PROTOCOL 保持一致；使用方应显式 set_protocol()
+        self._protocol = DEFAULT_PROTOCOL
         self._ip = self._get_local_ip()
         self._server_info = 'Windows/10 UPnP/1.0 HanCast/2.0'
 
@@ -215,34 +220,54 @@ class SSDPService:
         self._running = False
         self._do_byebye()
 
+    def set_protocol(self, protocol: str) -> None:
+        """设置投屏协议；下次 _register 按新身份发条目。"""
+        self._protocol = protocol
+
+    def reload(self) -> None:
+        """协议热切换：先撤掉旧条目，再注册并广播新条目。"""
+        self._do_byebye()
+        self._register()
+        self._do_notify()
+        logger.info("SSDP 已重载 (protocol=%s, entries=%d)",
+                    self._protocol, len(self._known))
+
     def _register(self):
-        """注册 6 个 SSDP 条目"""
+        """按当前投屏协议注册单台设备的 SSDP 条目。
+
+        NVA：7 条，多一条 NirvanaControl ST，B 站 App 靠它识别小电视；
+        DLNA：6 条，只有标准渲染器服务。所有条目共用同一个 UDN 和同一份
+        /description.xml，LOCATION 完全一致。
+        """
         location = 'http://{{}}:{}/description.xml'.format(self._port)
         usn = self._usn  # e.g. "uuid:82b37828-..."
 
         devices = [
-            f'{usn}::upnp:rootdevice',
-            f'{usn}',
-            f'{usn}::urn:schemas-upnp-org:device:MediaRenderer:1',
-            f'{usn}::urn:schemas-upnp-org:service:RenderingControl:1',
-            f'{usn}::urn:schemas-upnp-org:service:ConnectionManager:1',
-            f'{usn}::urn:schemas-upnp-org:service:AVTransport:1',
+            (f'{usn}::upnp:rootdevice', location),
+            (f'{usn}', location),
+            (f'{usn}::urn:schemas-upnp-org:device:MediaRenderer:1', location),
+            (f'{usn}::urn:schemas-upnp-org:service:AVTransport:1', location),
+            (f'{usn}::urn:schemas-upnp-org:service:RenderingControl:1', location),
+            (f'{usn}::urn:schemas-upnp-org:service:ConnectionManager:1', location),
         ]
+        if self._protocol == PROTOCOL_NVA:
+            devices.append((f'{usn}::{NVA_SERVICE_TYPE}', location))
 
         self._known = {}
-        for device_usn in devices:
-            # ST = USN 第 43 个字符之后的内容，如果是空则用完整 USN
-            st = device_usn[43:] if len(device_usn) > 43 and device_usn[43:] != '' else device_usn
+        for device_usn, target_location in devices:
+            # ST = USN 中 `::` 之后的部分；没有 `::` 时就是 uuid 本身
+            st = device_usn.split('::', 1)[1] if '::' in device_usn else device_usn
             self._known[device_usn] = {
                 'USN': device_usn,
-                'LOCATION': location,
+                'LOCATION': target_location,
                 'ST': st,
                 'EXT': '',
                 'SERVER': self._server_info,
                 'CACHE-CONTROL': 'max-age=66',
             }
 
-        logger.info(f"Registered as DLNA Renderer: {self._usn}")
+        logger.info("Registered SSDP entries: %d (protocol=%s, uuid=%s)",
+                    len(self._known), self._protocol, self._usn)
 
     def _run_ssdp(self):
         """SSDP 主循环"""
@@ -352,11 +377,16 @@ class SSDPService:
                      (host, port, st))
 
         for i in self._known.values():
-            if i['ST'] == st or st == 'ssdp:all':
+            if i['ST'] == st or st == 'ssdp:all' or (
+                    st.startswith('urn:app-bilibili-com') and i['ST'] == NVA_SERVICE_TYPE):
                 response = ['HTTP/1.1 200 OK']
 
+                # 放宽匹配时把 ST 回写成请求值：严格的 UPnP 客户端会按 ST 比对，
+                # 回自己的 NirvanaControl:3 会被直接丢弃
+                entry = i if i['ST'] == st or st == 'ssdp:all' else dict(i, ST=st)
+
                 usn = None
-                for k, v in i.items():
+                for k, v in entry.items():
                     if k == 'USN':
                         usn = v
                     response.append('%s: %s' % (k, v))

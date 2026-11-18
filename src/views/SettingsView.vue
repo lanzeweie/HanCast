@@ -8,7 +8,9 @@ import { useGuardStore } from '@/stores/guard'
 import { useUpdateStore } from '@/stores/update'
 import GuardDeviceList from '@/components/GuardDeviceList.vue'
 import CustomSelect from '@/components/CustomSelect.vue'
+import Modal from '@/components/Modal.vue'
 import { exportLogs } from '@/api/commands'
+import type { Protocol } from '@/types/settings'
 
 const router = useRouter()
 const { t, locale } = useI18n()
@@ -20,10 +22,41 @@ const updateStore = useUpdateStore()
 const friendlyName = ref('')
 const showGuardDevices = ref(false)
 
+// 投屏协议：选中后先弹确认，确认才写入配置并触发热重载
+const protocol = ref<Protocol>('dlna')
+const pendingProtocol = ref<Protocol | null>(null)
+
 onMounted(async () => {
   await settingsStore.fetchSettings()
   friendlyName.value = settingsStore.settings.friendly_name
+  protocol.value = settingsStore.settings.protocol ?? 'dlna'
 })
+
+function protocolLabel(value: Protocol): string {
+  return value === 'dlna' ? t('settings.protocolDlna') : t('settings.protocolNva')
+}
+
+function onProtocolSelect(value: string | number) {
+  const next = value as Protocol
+  if (next === protocol.value) return
+  pendingProtocol.value = next
+}
+
+async function confirmProtocol() {
+  const next = pendingProtocol.value
+  pendingProtocol.value = null
+  if (!next) return
+  const prev = protocol.value
+  protocol.value = next
+  // 后端写入失败（或拒绝）时回滚，避免界面显示的协议与实际身份不一致
+  if (!(await settingsStore.saveSettings({ protocol: next }))) {
+    protocol.value = prev
+  }
+}
+
+function cancelProtocol() {
+  pendingProtocol.value = null
+}
 
 function goBack() {
   router.push('/')
@@ -145,6 +178,18 @@ async function onCheckUpdate() {
       <!-- Cast -->
       <section class="settings__section">
         <h3 class="settings__section-title">{{ t('settings.cast') }}</h3>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('settings.protocol') }}</span>
+          <CustomSelect
+            :model-value="protocol"
+            @update:model-value="onProtocolSelect"
+            :options="[
+              { label: t('settings.protocolDlna'), value: 'dlna' },
+              { label: t('settings.protocolNva'), value: 'nva' },
+            ]"
+          />
+        </div>
 
         <div class="settings__item">
           <span class="settings__label">{{ t('settings.dlnaName') }}</span>
@@ -273,6 +318,22 @@ async function onCheckUpdate() {
       </section>
     </div>
   </div>
+
+  <!-- 协议切换确认 -->
+  <Modal
+    size="small"
+    :visible="pendingProtocol !== null"
+    :title="t('settings.protocolConfirmTitle')"
+    @close="cancelProtocol"
+  >
+    <p class="settings__protocol-confirm">
+      {{ t('settings.protocolConfirm', { name: pendingProtocol ? protocolLabel(pendingProtocol) : '' }) }}
+    </p>
+    <template #actions>
+      <button class="btn-cancel" @click="cancelProtocol">{{ t('common.cancel') }}</button>
+      <button class="btn-confirm" @click="confirmProtocol">{{ t('common.confirm') }}</button>
+    </template>
+  </Modal>
 </template>
 
 <style scoped>
@@ -387,6 +448,10 @@ async function onCheckUpdate() {
 
 .settings__input:focus {
   border-color: var(--border-focus);
+}
+
+.settings__protocol-confirm {
+  white-space: pre-line;
 }
 
 .settings__link {

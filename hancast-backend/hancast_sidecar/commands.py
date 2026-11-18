@@ -10,6 +10,7 @@ import threading
 from typing import Any, Dict, Optional
 from .ssdp import SSDPService
 from .protocol.dlna import DLNAProtocol
+from .protocol.nva.service import NVAService
 from .protocol.server import DLNAServer, DLNAHandler
 from .renderer.mpv import MPVRenderer
 from .media.parser import MediaParser
@@ -19,7 +20,7 @@ from .models.device import Device
 from .models.media import MediaInfo
 from .models.cast import CastState
 from .models.session import DeviceCastSession
-from .utils.config import Config
+from .utils.config import Config, PROTOCOL_NVA
 from .security.guard import DeviceGuard
 from .utils.mpv_manager import MpvManager
 
@@ -95,12 +96,13 @@ class CommandHandler:
         # 多设备投屏会话 {device_id: DeviceCastSession}
         self.device_sessions: Dict[str, DeviceCastSession] = {}
 
-        # DLNA 描述服务器
-        friendly_name = self.config.get_friendly_name()
-        device_usn = f"uuid:{self.config.get_usn()}"
+        # 单台设备、一个 UDN、一份 /description.xml；身份内容随投屏协议切换
+        self.protocol_mode = self.config.get_protocol()
+        device_name = self._device_name_for(self.protocol_mode)
+        self.device_usn = f"uuid:{self.config.get_usn()}"
         self.dlna_server = DLNAServer(
-            friendly_name=friendly_name,
-            usn=device_usn,
+            friendly_name=device_name,
+            usn=self.device_usn,
             ip=self._get_local_ip(),
             port=8080
         )
@@ -108,14 +110,27 @@ class CommandHandler:
 
         # SSDP 服务 (端口会在 _start_services 中更新)
         self.ssdp = SSDPService(
-            friendly_name=friendly_name,
+            friendly_name=device_name,
             port=8080,
-            usn=device_usn
+            usn=self.device_usn,
         )
+        self.ssdp.set_protocol(self.protocol_mode)
 
         # 设备投屏确认 (Device Guard)
         self.device_guard = DeviceGuard(self.config)
         self.device_guard._on_confirm_request = self._on_guard_confirm_request
+
+        # 不同协议共用同一个渲染器和协议状态，不额外起播放器；
+        self.nva_service = NVAService(
+            renderer=self.renderer,
+            protocol=self.protocol,
+            guard=self.device_guard,
+            config=self.config,
+            uuid=self.device_usn,
+        )
+        self.dlna_server.set_nva_service(
+            self.nva_service if self.protocol_mode == PROTOCOL_NVA else None
+        )
 
         # 注册命令
         self._commands: Dict[str, callable] = {
@@ -206,6 +221,10 @@ class CommandHandler:
         # 启动 DLNA 协议事件线程 (发送状态变化通知给订阅的客户端)
         self.protocol.start()
 
+        # 启动 NVA 会话服务（小电视长连接入口），DLNA 协议下不启动
+        if self.protocol_mode == PROTOCOL_NVA:
+            self.nva_service.start()
+
         # 启动 MPV 渲染器
         self.renderer.start()
         logger.info("MPV renderer started")
@@ -229,6 +248,8 @@ class CommandHandler:
         self.ssdp.stop()
         self.dlna_server.stop()
         self.media_server.stop()
+        # 先停电视端会话（会关闭长连接、清掉 B 站请求头），再关播放器
+        self.nva_service.stop()
         # shutdown() 用于退出路径，幂等可重复调用；stop() 用于运行时暂停
         self.renderer.shutdown()
         self.protocol.stop_event_thread()
@@ -476,6 +497,8 @@ class CommandHandler:
             "duration": duration or "00:00:00",
             "position": position or "00:00:00",
             "status": transport or "STOPPED",
+            # 托盘每秒取一次快照，顺带把协议带上，避免再开一条 get_settings IPC
+            "protocol": self.config.get_protocol(),
         }
 
     def _set_volume(self, params: dict) -> int:
@@ -546,21 +569,75 @@ class CommandHandler:
         return self.config.to_dict()
 
     def _save_settings(self, params: dict) -> None:
-        settings = params["settings"]
+        settings = dict(params["settings"])
 
-        # 热更新设备名称：拒绝空字符串（防止用户误删或脏数据写入）
-        new_name = settings.get("friendly_name")
-        if new_name == "":
-            return
-
-        if new_name != self.config.get_friendly_name():
-            self.dlna_server.friendly_name = new_name
-            DLNAHandler.friendly_name = new_name
-            self.config.friendly_name = new_name
-            logger.info(f"设备名称已更新: {new_name}")
+        # 部分更新：只处理真正传上来的字段。前端切协议时只发 {protocol}，
+        # 这里读不到 friendly_name 必须保持原值——按旧逻辑（new_name=="" 才拦截）
+        # 会把设备名写成 None，之后 description.xml 的 replace 抛 TypeError 返回 500。
+        if "friendly_name" in settings:
+            new_name = str(settings.get("friendly_name") or "").strip()
+            if not new_name:
+                # 空名不入库，但其余字段照常保存
+                settings.pop("friendly_name")
+            elif new_name != self.config.get_friendly_name():
+                self.dlna_server.friendly_name = new_name
+                DLNAHandler.friendly_name = new_name
+                self.config.friendly_name = new_name
+                logger.info(f"设备名称已更新: {new_name}")
 
         self.config.update(settings)
+        if "protocol" in settings:
+            protocol = settings.get("protocol")
+            if protocol:
+                requested = self.config.set_protocol(str(protocol))
+                if requested != self.protocol_mode:
+                    self._switch_protocol(requested)
+            else:
+                # 非法/空值不留在配置里，避免 config.get_protocol() 与 protocol_mode 分裂；
+                # 没传 protocol 的调用（例如只改设备名）不能动已保存的值
+                self.config.settings.pop("protocol", None)
         self.config.save()
+
+    # ── 投屏协议热重载 ──
+
+    def _device_name_for(self, protocol: str) -> str:
+        if protocol == PROTOCOL_NVA:
+            return self.config.get_nva_name()
+        return self.config.get_friendly_name() or 'HanCast'
+
+    def _switch_protocol(self, protocol: str) -> None:
+        """切换投屏协议并热重载，不重启进程。
+
+        设备身份只换内容：UDN、端口、/description.xml 路径都不变，所以对端看到的
+        仍是同一台设备，只是描述与 SSDP 条目按新协议重建。
+        """
+        previous = self.protocol_mode
+        logger.info(f"投屏协议切换: {previous} -> {protocol}")
+
+        # 先停掉接收端正在播的内容：切协议后旧会话/旧订阅都不再有效，
+        # 不只看 NVA 会话——DLNA 投屏也要停，否则远端会挂在一个已改身份的端点上
+        if self.protocol.get_state_transport_state() in ('PLAYING', 'PAUSED_PLAYBACK'):
+            self.renderer.set_media_stop()
+        self.nva_service.stop()
+
+        self.protocol_mode = protocol
+        device_name = self._device_name_for(protocol)
+
+        # 描述由 handler 动态读 config，这里只需换 SSDP 条目与 NVA 入口
+        self.ssdp.set_protocol(protocol)
+        self.ssdp.reload()
+        self.ssdp._friendly_name = device_name
+        self.dlna_server.friendly_name = device_name
+        DLNAHandler.friendly_name = device_name
+
+        if protocol == PROTOCOL_NVA:
+            self.dlna_server.set_nva_service(self.nva_service)
+            self.nva_service.start()
+        else:
+            self.dlna_server.set_nva_service(None)
+
+        self._emit_event("protocol_changed", {"protocol": protocol})
+        logger.info(f"投屏协议已生效: {protocol}")
 
     # ── 更新检查 ──
 
@@ -737,5 +814,7 @@ class CommandHandler:
         if info.status.value == "ready" and info.path:
             logger.info(f"Reloading MPV renderer with path: {info.path}")
             self.renderer = MPVRenderer(path=info.path)
+            # 电视端会话通过服务引用渲染器，换了实例必须同步
+            self.nva_service.renderer = self.renderer
 
         return info.to_dict()

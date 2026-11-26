@@ -81,3 +81,32 @@ pub async fn set_state(app: &AppHandle, enabled: bool) -> Result<(), String> {
         app.autolaunch().disable().map_err(|e| e.to_string())
     }
 }
+
+/// 返回 LaunchAgent plist 的诊断信息，写入会话日志。
+///
+/// `auto-launch` 的 macOS LaunchAgent plist 位于
+/// `~/Library/LaunchAgents/{app_name}.plist`，ProgramArguments 里应同时包含
+/// 可执行文件路径与 `--minimized`（由插件初始化参数传入）。
+#[cfg(target_os = "macos")]
+pub(crate) fn launch_agent_info(app_name: &str) -> String {
+    let Some(path) = std::env::var_os("HOME").map(std::path::PathBuf::from).map(|home| {
+        home.join("Library")
+            .join("LaunchAgents")
+            .join(format!("{app_name}.plist"))
+    }) else {
+        return "LaunchAgent: 无法确定 HOME 目录".to_string();
+    };
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => format!(
+            "LaunchAgent: {}（已写入，ProgramArguments {} --minimized）",
+            path.display(),
+            if content.contains("--minimized") {
+                "包含"
+            } else {
+                "缺少"
+            }
+        ),
+        Err(_) => format!("LaunchAgent: {}（未找到）", path.display()),
+    }
+}

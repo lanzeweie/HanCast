@@ -1,6 +1,6 @@
 # Macast-Han 开发进度
 
-## 当前阶段: Phase 2 — macOS 可分发打包
+## 当前阶段: Phase 3 — macOS 体验与系统集成
 
 **最后更新**: 2026-11-26
 
@@ -12,8 +12,59 @@
 |------|------|------|
 | Phase 1: macOS 核心功能 | ✅ 已完成 | MPV/SSDP/DLNA/退出清理已跑通 |
 | Phase 2: macOS 可分发打包 | ✅ 自用链路完成 | mac-build.sh 产出 signed .app + DMG，ad-hoc |
+| Phase 3: macOS 体验与系统集成 | ✅ 已完成（防火墙弹窗待真机） | 原生红绿灯/应用菜单/自启验证/防火墙指引/日志合并 |
 | 真实设备验收 | ⏳ 待开始 | 手机投 Mac、Mac 投电视（无电视） |
 | 正式发版 | ⏳ 待开始 | Developer ID + 公证 + staple；Intel 未构建 |
+
+---
+
+## 2026-11-26 — Phase 3 macOS 体验与系统集成
+
+### 已完成并验证
+- 窗口：macOS 改用原生红绿灯
+  - `tauri.macos.conf.json` 覆盖 `app.windows`（数组整体替换）：
+    `decorations: true` + `titleBarStyle: "Overlay"` + `hiddenTitle: true`
+  - 前端按平台隐藏自绘最小化/关闭，标题栏左侧留 78px 给红绿灯
+  - 补 `data-tauri-drag-region="deep"`（WKWebView 不支持
+    `-webkit-app-region`）；macOS 上用 `.title-bar--mac` 关掉 CSS app-region，
+    避免双路径
+  - **关键**：capabilities 增加 `core:window:allow-start-dragging`。
+    `core:window:default` 不包含 start_dragging，缺权限时拖拽命令被 ACL
+    拒绝且无 UI 提示
+  - 绿钮保持禁用（沿用 `set_maximizable(false)`，避免全屏拉伸紧凑布局；
+    全屏可走「显示 → 进入全屏幕」）
+- 应用菜单：显式构建 macOS 菜单（关于 HanCast / 服务 / 隐藏 / 隐藏其他 /
+  显示全部 / 退出 + 编辑 / 显示 / 窗口）；退出走 NSApp terminate →
+  `ExitRequested`，复用 sidecar/MPV 清理
+- 开机自启：托盘与设置页共用 `apply_autostart`，日志记录结果与
+  LaunchAgent 路径 / 是否含 `--minimized`
+- 防火墙：启动时读 `socketfilterfw --getglobalstate` 写日志；设置页新增
+  「网络」区（状态 / 首次投屏指引 / 打开系统设置）
+- 日志导出：合并 Rust 会话日志与 Python sidecar 日志到同一个文件
+- 设置页 macOS 文案：关闭提示改为“隐藏到菜单栏”；自启提示先放入
+  Applications
+
+### 验证结果（构建 2.1.4，target/release/bundle/macos）
+- `--minimized`：SessionLogger 记录启动参数，System Events 窗口数 0
+- 应用菜单：菜单栏出现 HanCast / 编辑 / 显示 / 窗口；关于面板可打开；
+  「退出 HanCast」与 ⌘Q 均无 sidecar/MPV 残留
+- 原生红/黄按钮：红钮隐藏窗口且进程/托盘保留；黄钮最小化
+- 标题栏拖动：补 `allow-start-dragging` 后，cliclick 实测窗口位置
+  从 (628,259) 变为 (748,329)
+- 自启：托盘开启后 `~/Library/LaunchAgents/HanCast.plist` 写入，
+  `ProgramArguments` 含 `--minimized`；关闭后 plist 删除
+- 防火墙：安装到 /Applications 后系统防火墙为开启（State=1）；
+  `socketfilterfw --getappblocked` 显示 HanCast 与 hancast-sidecar 均为
+  permitted，8080 正在监听；设置页显示“已开启”，启动日志写入对应提示
+- 版本：设置页改为读取 Tauri 应用版本，覆盖安装后显示 2.1.4（不再受旧
+  sidecar 常量影响）
+- 交付：2.1.4 已覆盖安装到 `/Applications/HanCast.app`；旧 2.1.0 备份在
+  `/tmp/HanCast-old-20261126-180823.app`
+
+### 未验证 / 已知限制
+- 防火墙“拒绝授权 → 8080 不可达”的故障场景未复现（当前两者均 permitted）
+- 真实手机投 Mac 仍受本地网络 TCC 授权影响（测试中出现 SSDP sendto 失败）
+- macOS `app.windows` 在平台配置里是整段复制，后续改窗口参数需两边同步
 
 ---
 

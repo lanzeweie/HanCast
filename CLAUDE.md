@@ -386,18 +386,38 @@ npm run test
 
 ## 窗口配置
 
+基础配置在 `tauri.conf.json`（Windows 使用自绘标题栏）：
+
 ```json
 {
-  "width": 420,
-  "height": 600,
-  "minWidth": 360,
-  "minHeight": 480,
+  "width": 434,
+  "height": 634,
+  "minWidth": 346,
+  "minHeight": 472,
   "maxWidth": 800,
   "maxHeight": 900,
   "decorations": false,
   "transparent": true
 }
 ```
+
+macOS 在 `tauri.macos.conf.json` 中用整段 `app.windows` 覆盖（平台配置的数组
+是整体替换，不是逐字段合并）：
+
+```json
+{
+  "decorations": true,
+  "titleBarStyle": "Overlay",
+  "hiddenTitle": true,
+  "transparent": true
+}
+```
+
+前端按 `isMacOS` 隐藏自绘最小化/关闭按钮，标题栏左侧留 78px 给原生红绿灯；
+WKWebView 不支持 `-webkit-app-region`，拖动依赖
+`data-tauri-drag-region="deep"`，并在 `capabilities/default.json` 显式授予
+`core:window:allow-start-dragging`（Tauri v2 的 `core:window:default` 不含
+start_dragging，缺了会静默失效）。改窗口尺寸/参数时需同步两份 windows 配置。
 
 **注意**: 窗口特效（vibrancy/blur）尚未实现，当前仅使用透明窗口。
 

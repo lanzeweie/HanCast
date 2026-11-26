@@ -1,6 +1,6 @@
 # Macast-Han 架构决策记录
 
-**最后更新**: 2026-07-05
+**最后更新**: 2026-11-26
 
 ---
 
@@ -109,6 +109,49 @@
   自己签的 dylib。Tauri 签名只覆盖框架/外部二进制/外层 .app，不递归 Resources，
   所以嵌套签名会保留。
 - **正式发版**: Developer ID + 公证（Tauri 读 APPLE_* 环境变量自动提交并 staple）。
+
+### DEC-011: macOS 使用原生红绿灯
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 3）
+- **决策**: macOS 窗口改用 `decorations: true` + `titleBarStyle: "Overlay"` +
+  `hiddenTitle: true`，放弃自绘最小化/关闭按钮；Windows 仍用自绘标题栏。
+- **实现**:
+  - `tauri.macos.conf.json` 覆盖整段 `app.windows`（平台配置数组整体替换）
+  - 前端按 `isMacOS` 隐藏自绘按钮，标题栏左侧留 78px；红/黄为原生行为
+  - WKWebView 不支持 `-webkit-app-region`，用 `data-tauri-drag-region="deep"`
+  - Tauri v2 的 `start_dragging` 受 ACL 控制，capabilities 必须显式加
+    `core:window:allow-start-dragging`（`core:window:default` 不含该项）
+  - 绿钮沿用 `set_maximizable(false)` 保持禁用（窗口是紧凑面板，全屏走菜单）
+- **注意**: 改窗口尺寸/参数时需同步 `tauri.conf.json` 与
+  `tauri.macos.conf.json` 两份 windows 配置。
+
+### DEC-012: macOS 显式应用菜单
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 3）
+- **决策**: 在 setup 中显式构建 macOS 应用菜单（关于 / 服务 / 隐藏 / 隐藏其他 /
+  显示全部 / 退出 + 编辑 / 显示 / 窗口），替代 Tauri 默认英文菜单。
+- **理由**: 默认菜单标签为英文且 About 无项目信息；显式菜单可带版本、
+  GPL/仓库 credits，并与托盘菜单语言一致。
+- **Cmd+Q**: 预定义 quit → `NSApp terminate` → `RunEvent::ExitRequested`，
+  仍走统一 sidecar/MPV 清理状态机。
+
+### DEC-013: 防火墙指引以“设置页 + 启动日志”呈现
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 3）
+- **决策**: 不自动修改系统防火墙；启动时调用
+  `socketfilterfw --getglobalstate` 记录状态，设置页展示状态、首次投屏
+  允许指引和「打开防火墙设置」入口。
+- **理由**: `socketfilterfw` 修改需要管理员权限；误操作系统安全设置风险高。
+- **范围**: 指引覆盖 SSDP 1900/UDP 与 DLNA 8080/TCP；提示 HanCast 与
+  hancast-sidecar 两个可执行文件都可能出现在系统弹窗中。
+
+### DEC-014: 日志导出合并 Rust 与 Python 日志
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 3）
+- **决策**: 导出日志时把 Rust 会话日志（`app_data_dir/logs/hancast.log`）与
+  Python sidecar 日志（`HanCast/logs/hancast.log`）合并写入用户选择的文件。
+- **理由**: 两者目录不同（Tauri 用 bundle identifier，Python 用产品名），
+  只导出 Python 日志会丢掉启动、网络授权、防火墙、自启等诊断信息。
 
 ## 待决策事项
 

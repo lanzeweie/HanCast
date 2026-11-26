@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
@@ -9,8 +9,10 @@ import { useUpdateStore } from '@/stores/update'
 import GuardDeviceList from '@/components/GuardDeviceList.vue'
 import CustomSelect from '@/components/CustomSelect.vue'
 import Modal from '@/components/Modal.vue'
-import { exportLogs } from '@/api/commands'
+import { exportLogs, getFirewallStatus, openFirewallSettings } from '@/api/commands'
+import { isMacOS } from '@/utils/platform'
 import type { Protocol } from '@/types/settings'
+import type { FirewallStatus } from '@/types/firewall'
 
 const router = useRouter()
 const { t, locale } = useI18n()
@@ -30,6 +32,42 @@ onMounted(async () => {
   await settingsStore.fetchSettings()
   friendlyName.value = settingsStore.settings.friendly_name
   protocol.value = settingsStore.settings.protocol ?? 'dlna'
+  refreshFirewall()
+})
+
+// ── macOS 防火墙状态与指引 ──
+const firewall = ref<FirewallStatus | null>(null)
+const firewallError = ref(false)
+
+async function refreshFirewall() {
+  if (!isMacOS) return
+  try {
+    firewall.value = await getFirewallStatus()
+    firewallError.value = false
+  } catch {
+    firewallError.value = true
+  }
+}
+
+async function onOpenFirewall() {
+  try {
+    await openFirewallSettings()
+  } catch {
+    // 打开失败不影响设置页其他操作
+  }
+}
+
+const firewallText = computed(() => {
+  const fw = firewall.value
+  if (!fw || !fw.supported || firewallError.value) return t('settings.firewallUnknown')
+  if (fw.blockAll) return t('settings.firewallBlockAll')
+  return fw.enabled ? t('settings.firewallEnabled') : t('settings.firewallDisabled')
+})
+
+const firewallTone = computed(() => {
+  const fw = firewall.value
+  if (!fw || !fw.supported || firewallError.value) return 'unknown'
+  return fw.enabled ? 'warn' : 'ok'
 })
 
 function protocolLabel(value: Protocol): string {
@@ -123,7 +161,11 @@ async function onCheckUpdate() {
 
 <template>
   <div class="settings">
-    <header class="settings__header">
+    <header
+      class="settings__header"
+      :class="{ 'settings__header--mac': isMacOS }"
+      :data-tauri-drag-region="isMacOS ? 'deep' : undefined"
+    >
       <button class="settings__back" @click="goBack">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7" />
@@ -173,6 +215,10 @@ async function onCheckUpdate() {
             <span class="settings__toggle-slider" />
           </label>
         </div>
+
+        <p v-if="isMacOS" class="settings__hint">
+          {{ t('settings.autoStartHintMac') }}
+        </p>
       </section>
 
       <!-- Cast -->
@@ -254,6 +300,31 @@ async function onCheckUpdate() {
             <GuardDeviceList />
           </div>
         </Transition>
+      </section>
+
+      <!-- Network (macOS firewall guidance) -->
+      <section v-if="isMacOS" class="settings__section">
+        <h3 class="settings__section-title">{{ t('settings.network') }}</h3>
+
+        <div class="settings__item">
+          <span class="settings__label">{{ t('settings.firewall') }}</span>
+          <span class="settings__status" :class="`settings__status--${firewallTone}`">
+            {{ firewallText }}
+          </span>
+        </div>
+
+        <p class="settings__hint">{{ t('settings.firewallHint') }}</p>
+
+        <button class="settings__item settings__item--clickable" @click="onOpenFirewall">
+          <span class="settings__label">{{ t('settings.openFirewall') }}</span>
+          <svg
+            class="settings__chevron"
+            viewBox="0 0 24 24" width="16" height="16" fill="none"
+            stroke="currentColor" stroke-width="2"
+          >
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+        </button>
       </section>
 
       <!-- About -->
@@ -354,6 +425,12 @@ async function onCheckUpdate() {
   flex-shrink: 0;
 }
 
+.settings__header--mac {
+  -webkit-app-region: no-drag;
+  /* 给原生红绿灯留出位置 */
+  padding-left: 78px;
+}
+
 .settings__back {
   width: 28px;
   height: 28px;
@@ -419,6 +496,31 @@ async function onCheckUpdate() {
 .settings__value {
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+.settings__hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+  padding: 0 var(--sp-md);
+  margin: 0;
+}
+
+.settings__status {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings__status--ok {
+  color: var(--status-online);
+}
+
+.settings__status--warn {
+  color: var(--status-busy);
+}
+
+.settings__status--unknown {
+  color: var(--text-tertiary);
 }
 
 .settings__value--mono {

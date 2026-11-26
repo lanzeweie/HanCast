@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
+import { isMacOS } from '@/utils/platform'
 import Modal from './Modal.vue'
 
 const { t } = useI18n()
@@ -37,7 +38,7 @@ function markAsked() {
         {{ t('autostartPrompt.desc') }}
       </p>
       <p class="autostart-prompt__hint">
-        {{ t('autostartPrompt.hint') }}
+        {{ isMacOS ? t('autostartPrompt.hintMac') : t('autostartPrompt.hint') }}
       </p>
     </div>
 

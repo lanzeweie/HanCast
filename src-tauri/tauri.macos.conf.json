@@ -1,5 +1,28 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "HanCast",
+        "width": 434,
+        "height": 634,
+        "minWidth": 346,
+        "minHeight": 472,
+        "maxWidth": 800,
+        "maxHeight": 900,
+        "resizable": true,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "transparent": true,
+        "center": true,
+        "visible": false,
+        "dragDropEnabled": true,
+        "devtools": false
+      }
+    ]
+  },
   "bundle": {
     "externalBin": [],
     "resources": [

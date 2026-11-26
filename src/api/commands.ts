@@ -8,6 +8,7 @@ import type { CastState, CastUrlInfo } from '@/types/cast'
 import type { AppSettings } from '@/types/settings'
 import type { GuardDevicesResponse, GuardSettings } from '@/types/guard'
 import type { UpdateInfo } from '@/types/update'
+import type { FirewallStatus } from '@/types/firewall'
 
 // ── Helpers ──
 
@@ -118,6 +119,17 @@ async function mockInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
     case 'get_autostart':
       return false as T
     case 'set_autostart':
+      return undefined as T
+    case 'get_firewall_status':
+      return {
+        supported: false,
+        state: 0,
+        enabled: false,
+        blockAll: false,
+        stealth: false,
+        detail: 'browser mock',
+      } as T
+    case 'open_firewall_settings':
       return undefined as T
     case 'parse_media_file': {
       const fp = String(args?.filePath ?? '')
@@ -311,6 +323,17 @@ export async function getAutostart(): Promise<boolean> {
 export async function setAutostart(enabled: boolean): Promise<void> {
   const invoke = await initInvoke()
   await invoke('set_autostart', { enabled })
+}
+
+// Firewall (macOS)
+export async function getFirewallStatus(): Promise<FirewallStatus> {
+  const invoke = await initInvoke()
+  return invoke<FirewallStatus>('get_firewall_status')
+}
+
+export async function openFirewallSettings(): Promise<void> {
+  const invoke = await initInvoke()
+  await invoke('open_firewall_settings')
 }
 
 // Window control

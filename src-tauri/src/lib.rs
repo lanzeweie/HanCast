@@ -3,6 +3,7 @@ mod sidecar;
 
 use serde::{Deserialize, Serialize};
 use sidecar::SidecarManager;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::fs;
 use std::path::PathBuf;
@@ -13,6 +14,13 @@ use tauri::{
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use chrono::Local;
+
+/// 退出清理状态：0=运行中，1=清理中，2=清理完成。
+/// `AppHandle::exit()` 会再次触发 `RunEvent::ExitRequested`，没有状态机会无限
+/// 阻止退出；清理期间重复的退出请求也继续拦下，避免提前退出留下孤儿 MPV。
+static EXIT_STATE: AtomicU8 = AtomicU8::new(0);
+const EXIT_CLEANING: u8 = 1;
+const EXIT_READY: u8 = 2;
 
 /// 窗口配置数据结构（尺寸为逻辑像素 / CSS px，与 tauri.conf 一致）
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -151,6 +159,69 @@ fn minimize_window(window: tauri::Window) {
 fn close_window(window: tauri::Window) {
     // Hide to tray instead of closing
     window.hide().ok();
+}
+
+/// macOS 本地网络隐私授权。
+///
+/// SSDP 多播由 Python sidecar 执行，但 sidecar 不是 App Bundle，TCC 无法为它
+/// 弹授权窗口，会直接静默拒绝（sendto 返回 EHOSTUNREACH）。先由主 App 访问
+/// 本地网络（TCP 连默认网关 + SSDP 多播），让弹窗归属到 HanCast 主 App；
+/// 授权后 sidecar 的发送才会被放行。
+#[cfg(target_os = "macos")]
+fn warm_up_local_network(logger: &SessionLogger) {
+    use std::net::{SocketAddr, TcpStream, UdpSocket};
+    use std::time::Duration;
+
+    // 1) TCP 连接默认网关：比 UDP 多播更可靠地触发 Local Network 授权
+    if let Some(gateway) = default_gateway() {
+        for port in [80u16, 53, 443] {
+            let addr = SocketAddr::from((gateway, port));
+            match TcpStream::connect_timeout(&addr, Duration::from_millis(300)) {
+                Ok(_) => {
+                    logger.log(&format!("本地网络授权探测：已连接网关 {addr}"));
+                    break;
+                }
+                Err(e) => logger.log(&format!("本地网络探测 {addr}: {e}")),
+            }
+        }
+    } else {
+        logger.log("本地网络探测：未找到默认网关");
+    }
+
+    // 2) SSDP 多播探测（应用本身的第一条业务报文）
+    let probe: &[u8] = b"M-SEARCH * HTTP/1.1\r\n\
+HOST: 239.255.255.250:1900\r\n\
+MAN: \"ssdp:discover\"\r\n\
+MX: 1\r\n\
+ST: ssdp:all\r\n\r\n";
+
+    match UdpSocket::bind("0.0.0.0:0") {
+        Ok(sock) => {
+            sock.set_multicast_ttl_v4(2).ok();
+            match sock.send_to(probe, "239.255.255.250:1900") {
+                Ok(n) => logger.log(&format!("本地网络授权探测已发送 ({n} bytes)")),
+                Err(e) => logger.log(&format!(
+                    "本地网络探测发送失败（尚未授权时属正常）: {e}"
+                )),
+            }
+        }
+        Err(e) => logger.log(&format!("本地网络探测 socket 创建失败: {e}")),
+    }
+}
+
+/// 读取默认路由网关（`route -n get default` 输出中的 gateway 行）。
+#[cfg(target_os = "macos")]
+fn default_gateway() -> Option<std::net::Ipv4Addr> {
+    let output = std::process::Command::new("/sbin/route")
+        .args(["-n", "get", "default"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let value = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("gateway:"))?
+        .trim();
+    value.parse().ok()
 }
 
 // ── Device management ──
@@ -594,7 +665,7 @@ async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), Strin
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -624,13 +695,8 @@ pub fn run() {
                     }
                 }
             } else if event.id() == "quit" {
-                // 优雅关闭：先通知 sidecar 清理（杀 MPV 等），再退出应用
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let sidecar = app_handle.state::<SidecarManager>();
-                    sidecar.shutdown().await;
-                    app_handle.exit(0);
-                });
+                // 统一走 RunEvent::ExitRequested：先清理 sidecar（连带 MPV），再退出
+                app.exit(0);
             } else if event.id() == "autostart" {
                 // CheckMenuItem 已自动切换 checked 状态，执行实际操作
                 let app_handle = app.clone();
@@ -654,6 +720,12 @@ pub fn run() {
                 .join("logs");
             let logger = SessionLogger::new(&log_dir);
             logger.log("=== HanCast 启动 ===");
+
+            // macOS：主进程先触发本地网络授权（弹窗归属到 HanCast），
+            // 再启动 Python sidecar，否则 sidecar 的 SSDP 发送会被静默拒绝
+            #[cfg(target_os = "macos")]
+            warm_up_local_network(&logger);
+
             app.manage(logger);
 
             // 加载窗口配置
@@ -787,8 +859,18 @@ pub fn run() {
                 .build()?;
 
             // Build tray icon (禁用左键弹出菜单，左键只显示窗口)
-            let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // macOS 菜单栏需要单色模板图（44px 源图由 tray-icon 缩放到 18pt）；
+            // 彩色应用图标在菜单栏会显得突兀，其他平台保持原样
+            #[cfg(target_os = "macos")]
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/trayTemplate.png"
+            ))
+            .expect("failed to load tray template icon");
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = app.default_window_icon().unwrap().clone();
+
+            let mut tray_builder = TrayIconBuilder::new()
+                .icon(tray_icon)
                 .tooltip(format!("HanCast v{}", env!("CARGO_PKG_VERSION")))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -807,8 +889,14 @@ pub fn run() {
                             let _ = window.set_focus();
                         }
                     }
-                })
-                .build(app)?;
+                });
+
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder.icon_as_template(true);
+            }
+
+            let tray = tray_builder.build(app)?;
 
             // Background task: startup update check (non-blocking, 2s timeout)
             let app_handle_update = app.handle().clone();
@@ -977,6 +1065,49 @@ pub fn run() {
             get_autostart,
             set_autostart,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // 统一退出/重开入口：
+    // - ExitRequested：Cmd+Q、托盘“退出”、关闭最后一个窗口都会经过这里。
+    //   macOS 没有 Job Object，必须先等 sidecar 结束（它负责退出 MPV），
+    //   否则 MPV 会变成孤儿进程留在后台。
+    // - Reopen：点击 Dock 图标时把隐藏到托盘的窗口重新显示出来。
+    app.run(|app_handle, event| match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            if !has_visible_windows {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+        tauri::RunEvent::ExitRequested { api, .. } => {
+            match EXIT_STATE.load(Ordering::SeqCst) {
+                // 清理已完成，这是我们自己调用 exit() 触发的请求，放行
+                EXIT_READY => return,
+                // 清理进行中（用户重复按 Cmd+Q），继续拦下
+                EXIT_CLEANING => {
+                    api.prevent_exit();
+                    return;
+                }
+                _ => {}
+            }
+
+            EXIT_STATE.store(EXIT_CLEANING, Ordering::SeqCst);
+            api.prevent_exit();
+            let handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                handle.state::<SidecarManager>().shutdown().await;
+                EXIT_STATE.store(EXIT_READY, Ordering::SeqCst);
+                handle.exit(0);
+            });
+        }
+        _ => {}
+    });
 }

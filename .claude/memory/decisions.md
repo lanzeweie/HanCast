@@ -57,6 +57,29 @@
 
 ---
 
+### DEC-006: macOS sidecar 打包方式（Nuitka 整套作为资源）
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 1）
+- **决策**: macOS 关闭 Tauri `externalBin`，把 Nuitka 产物（可执行文件 +
+  libpython + hancast_sidecar/xml）整体放进 `Contents/Resources/hancast-sidecar/`，
+  Rust 侧从该目录启动。
+- **理由**:
+  - externalBin 只复制单个可执行文件，Nuitka standalone 依赖会丢失
+  - macOS 的 resource_dir 与 MacOS 目录分离，Windows 的“同目录”假设不成立
+- **配置**: `src-tauri/tauri.macos.conf.json`
+
+### DEC-007: macOS 本地网络授权由主 App 触发
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 1）
+- **决策**: 启动时由 Rust 主进程向 SSDP 多播地址发一条 M-SEARCH，再启动 sidecar。
+- **理由**:
+  - SSDP 在 Python sidecar 中执行；sidecar 不是 App Bundle，TCC 无法为它弹窗，
+    会静默拒绝（sendto 返回 EHOSTUNREACH）
+  - 主进程先访问本地网络，授权弹窗归属 HanCast（Info.plist 已带
+    NSLocalNetworkUsageDescription）
+- **风险**: ad-hoc 签名在换路径/换 bundle ID 后 TCC 身份不稳定，可能不再弹窗；
+  正式分发应使用稳定的 Apple Development / Developer ID 签名。
+
 ## 待决策事项
 
 ### PENDING-001: Python HTTP 框架

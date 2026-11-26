@@ -363,8 +363,9 @@ class DLNAServer:
         self._command_handler = None
         self._nva_service = None
 
-        # XML 目录
-        self.xml_dir = os.path.join(os.path.dirname(__file__), '..', 'xml')
+        # XML 目录（先折叠 `protocol/..`：Nuitka 打包后没有 protocol/ 目录）
+        self.xml_dir = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), '..', 'xml'))
 
     def set_command_handler(self, handler):
         """设置命令处理器"""

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS 14+ 本地网络隐私：SSDP/DLNA 多播与局域网 HTTP 服务会触发授权弹窗 -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>HanCast 需要访问本地网络，以发现局域网内的电视并接收手机投屏（DLNA/SSDP）。</string>
+</dict>
+</plist>

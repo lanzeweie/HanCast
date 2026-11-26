@@ -133,6 +133,7 @@ impl SidecarManager {
                     .command("uv")
                     .args(["run", "python", "-m", "hancast_sidecar.main"])
                     .env("PYTHONIOENCODING", "utf-8")
+                    .env("PYTHONUTF8", "1")
                     .current_dir(backend_dir)
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar via uv: {e}"))?
@@ -148,20 +149,31 @@ impl SidecarManager {
 
                 eprintln!("[Sidecar] resource_dir: {:?}", resource_dir);
 
+                // macOS 不使用 externalBin：Nuitka 整套产物（可执行文件 + dylib +
+                // hancast_sidecar/ 数据）作为资源放在 Resources/hancast-sidecar/，
+                // 必须整体保留在一起，否则找不到 libpython3.12.dylib 和 XML。
+                #[cfg(target_os = "macos")]
+                let search_dir = resource_dir.join("hancast-sidecar");
+                #[cfg(not(target_os = "macos"))]
+                let search_dir = resource_dir.clone();
+
                 // 模糊查找 hancast-sidecar- 开头的可执行文件（自动适配任意平台 triple）
-                let sidecar_path = find_sidecar_binary(&resource_dir)?;
+                let sidecar_path = find_sidecar_binary(&search_dir)?;
                 eprintln!("[Sidecar] Found sidecar: {:?}", sidecar_path);
 
                 // 使用 command() + 绝对路径，绕过 sidecar() 的目录剥离问题
                 // current_dir 设为 sidecar 同级目录，确保 DLL/SO 依赖能正确加载
                 let work_dir = sidecar_path
                     .parent()
-                    .unwrap_or(&resource_dir)
+                    .unwrap_or(&search_dir)
                     .to_path_buf();
 
                 app.shell()
                     .command(&sidecar_path)
                     .env("PYTHONIOENCODING", "utf-8")
+                    // GUI 启动（Finder/Dock）没有 LANG，embedded Python 可能退回
+                    // ASCII 默认编码；强制 UTF-8 模式，避免解码子进程输出时报错
+                    .env("PYTHONUTF8", "1")
                     .current_dir(&work_dir)
                     .spawn()
                     .map_err(|e| format!("Failed to spawn sidecar {:?}: {e}", sidecar_path))?
@@ -346,7 +358,15 @@ impl SidecarManager {
         }
 
         // 2. 轮询等待 sidecar 真正退出（reader_loop 置 terminated 标志）
-        let timeout_ms: u64 = if cfg!(target_os = "windows") { 3000 } else { 1000 };
+        // macOS 没有 Job Object，强制杀 sidecar 不会连带结束 MPV，
+        // 必须给 Python 侧的 cleanup（含 MPV 退出）留足时间。
+        let timeout_ms: u64 = if cfg!(target_os = "windows") {
+            3000
+        } else if cfg!(target_os = "macos") {
+            4000
+        } else {
+            1000
+        };
         let poll_interval = std::time::Duration::from_millis(50);
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
 

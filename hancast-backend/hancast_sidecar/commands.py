@@ -86,8 +86,12 @@ class CommandHandler:
         self.mpv_manager = MpvManager(self.config)
         mpv_info = self.mpv_manager.check()
         mpv_path = mpv_info.path or "mpv"
-        logger.info(f"MPV status: {mpv_info.status.value}, path: {mpv_path}")
-        self.renderer = MPVRenderer(path=mpv_path)
+        mpv_config_dir = self.mpv_manager.ensure_config_dir()
+        logger.info(
+            f"MPV status: {mpv_info.status.value}, path: {mpv_path}, "
+            f"config_dir: {mpv_config_dir}"
+        )
+        self.renderer = MPVRenderer(path=mpv_path, config_dir=mpv_config_dir)
 
         self.media_parser = MediaParser()
         self.media_server = MediaServer()
@@ -813,7 +817,9 @@ class CommandHandler:
         # 设置成功后重新加载渲染器
         if info.status.value == "ready" and info.path:
             logger.info(f"Reloading MPV renderer with path: {info.path}")
-            self.renderer = MPVRenderer(path=info.path)
+            self.renderer = MPVRenderer(
+                path=info.path, config_dir=self.mpv_manager.ensure_config_dir()
+            )
             # 电视端会话通过服务引用渲染器，换了实例必须同步
             self.nva_service.renderer = self.renderer
 

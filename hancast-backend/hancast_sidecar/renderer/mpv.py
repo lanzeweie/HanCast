@@ -94,7 +94,7 @@ def _start_option(start) -> str:
 class MPVRenderer(Renderer):
     """MPV 渲染器实现"""
 
-    def __init__(self, path="mpv"):
+    def __init__(self, path="mpv", config_dir=None):
         super().__init__()
         mpv_rand = random.randint(0, 9999)
         if os.name == 'nt':
@@ -102,6 +102,8 @@ class MPVRenderer(Renderer):
         else:
             self.mpv_sock = f'/tmp/hancast_mpvsocket{mpv_rand}'
         self.path = path
+        # 显式配置目录（macOS 隔离到应用数据目录）；None 时由 mpv 自行决定
+        self.config_dir = config_dir
         self.proc = None
         self.title = "HanCast"
         self.mpv_thread = None
@@ -478,6 +480,9 @@ class MPVRenderer(Renderer):
         while self.running and not self._stopping and error_time > 0:
             self.set_state_speed('1')
             # mpv default params
+            # macOS 用 auto-safe（内部优先 VideoToolbox），显式 hwdec=yes 会触发
+            # “deprecated/无可用硬解”类告警；其他平台保持原行为
+            hwdec = 'auto-safe' if sys.platform == 'darwin' else 'yes'
             params = [
                 self.path,
                 '--input-ipc-server={}'.format(self.mpv_sock),
@@ -485,15 +490,18 @@ class MPVRenderer(Renderer):
                 '--idle=yes',
                 '--no-terminal',
                 '--on-all-workspaces',
-                '--hwdec=yes',
+                '--hwdec={}'.format(hwdec),
                 '--save-position-on-quit=yes',
             ]
+
+            # macOS: Lua 脚本 / 字体 / watch_later 都从显式配置目录读取
+            if self.config_dir:
+                params.append('--config-dir={}'.format(self.config_dir))
 
             # set darwin only options
             if sys.platform == 'darwin':
                 params += [
                     '--ontop-level=system',
-                    '--on-all-workspaces',
                     '--macos-app-activation-policy=accessory',
                 ]
 

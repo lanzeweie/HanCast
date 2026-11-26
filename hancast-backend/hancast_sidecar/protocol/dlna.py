@@ -212,8 +212,10 @@ class DLNAProtocol:
         设备不支持任何媒体而拒绝投屏。
         """
         import os
-        csv_path = os.path.join(
-            os.path.dirname(__file__), '..', 'xml', 'SinkProtocolInfo.csv')
+        # normpath 必须先折叠 `protocol/..`：Nuitka 打包后磁盘上只有
+        # hancast_sidecar/xml，没有 protocol/ 目录，带 `..` 的路径会 ENOENT
+        csv_path = os.path.normpath(os.path.join(
+            os.path.dirname(__file__), '..', 'xml', 'SinkProtocolInfo.csv'))
         try:
             with open(csv_path, 'r', encoding='utf-8') as f:
                 protocol_info = f.read().strip()
@@ -246,7 +248,9 @@ class DLNAProtocol:
         """初始化服务"""
         import os
         if xml_dir is None:
-            xml_dir = os.path.join(os.path.dirname(__file__), '..', 'xml')
+            # 同上：先折叠 `protocol/..`，兼容 Nuitka 打包后的目录结构
+            xml_dir = os.path.normpath(
+                os.path.join(os.path.dirname(__file__), '..', 'xml'))
 
         description = os.path.join(xml_dir, 'Description.xml')
         if not os.path.exists(description):

@@ -19,6 +19,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-10%2F11-blue?logo=windows" alt="Windows">
+  <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/License-GPL--3.0-green" alt="License">
 </p>
 

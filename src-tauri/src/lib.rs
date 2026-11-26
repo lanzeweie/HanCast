@@ -1,3 +1,4 @@
+mod platform_autostart;
 mod sidecar;
 
 use serde::{Deserialize, Serialize};
@@ -10,22 +11,15 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, State,
 };
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use chrono::Local;
 
-#[cfg(target_os = "windows")]
-use windows::{
-    ApplicationModel::{StartupTask, StartupTaskState},
-    core::HSTRING,
-};
-
-/// 窗口配置数据结构
+/// 窗口配置数据结构（尺寸为逻辑像素 / CSS px，与 tauri.conf 一致）
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct WindowConfig {
-    /// 窗口宽度
+    /// 窗口宽度（逻辑像素）
     width: f64,
-    /// 窗口高度
+    /// 窗口高度（逻辑像素）
     height: f64,
 }
 
@@ -578,91 +572,21 @@ fn protocol_menu_label(protocol: &str) -> String {
     }
 }
 
-/// MSIX StartupTask ID（与 AppxManifest.xml 中的 TaskId 一致）
-const STARTUP_TASK_ID: &str = "HanCastStartup";
-
 // ── Autostart ──
+// 平台分叉收在 platform_autostart 模块：Windows MSIX 走 WinRT，其余走插件。
 
-/// MSIX 环境下获取开机自启状态（使用 WinRT StartupTask API）
-#[cfg(target_os = "windows")]
-async fn get_autostart_msix() -> Result<bool, String> {
-    let task_id = HSTRING::from(STARTUP_TASK_ID);
-    let task = StartupTask::GetAsync(&task_id)
-        .map_err(|e| format!("获取启动任务失败: {e}"))?
-        .await
-        .map_err(|e| format!("等待启动任务失败: {e}"))?;
-
-    let state = task
-        .State()
-        .map_err(|e| format!("获取启动任务状态失败: {e}"))?;
-
-    Ok(state == StartupTaskState::Enabled)
-}
-
-/// MSIX 环境下设置开机自启状态（使用 WinRT StartupTask API）
-/// 参数通过 uap10:Parameters="--autostart" 在 AppxManifest.xml 中配置
-#[cfg(target_os = "windows")]
-async fn set_autostart_msix(enabled: bool) -> Result<(), String> {
-    let task_id = HSTRING::from(STARTUP_TASK_ID);
-    let task = StartupTask::GetAsync(&task_id)
-        .map_err(|e| format!("获取启动任务失败: {e}"))?
-        .await
-        .map_err(|e| format!("等待启动任务失败: {e}"))?;
-
-    if enabled {
-        task.RequestEnableAsync()
-            .map_err(|e| format!("请求启用启动任务失败: {e}"))?
-            .await
-            .map_err(|e| format!("等待启用结果失败: {e}"))?;
-        eprintln!("[Autostart] MSIX 开机自启已启用");
-    } else {
-        task.Disable()
-            .map_err(|e| format!("禁用启动任务失败: {e}"))?;
-        eprintln!("[Autostart] MSIX 开机自启已禁用");
-    }
-
-    Ok(())
-}
-
-/// 统一获取开机自启状态（根据环境自动选择实现）
 async fn get_autostart_state(app: &tauri::AppHandle) -> bool {
-    if is_store_version() {
-        get_autostart_msix().await.unwrap_or(false)
-    } else {
-        app.autolaunch().is_enabled().unwrap_or(false)
-    }
+    platform_autostart::get_state(app).await.unwrap_or(false)
 }
 
 #[tauri::command]
 async fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
-    if is_store_version() {
-        // MSIX 环境：使用 WinRT StartupTask API
-        get_autostart_msix().await
-    } else {
-        // 非 MSIX 环境：使用 tauri-plugin-autostart
-        app.autolaunch()
-            .is_enabled()
-            .map_err(|e| e.to_string())
-    }
+    platform_autostart::get_state(&app).await
 }
 
 #[tauri::command]
 async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    if is_store_version() {
-        // MSIX 环境：使用 WinRT StartupTask API（参数通过 uap10:Parameters 传递）
-        set_autostart_msix(enabled).await?;
-    } else {
-        // 非 MSIX 环境：使用 tauri-plugin-autostart
-        if enabled {
-            app.autolaunch()
-                .enable()
-                .map_err(|e| e.to_string())?;
-        } else {
-            app.autolaunch()
-                .disable()
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    platform_autostart::set_state(&app, enabled).await?;
     // 通知托盘菜单同步 CheckMenuItem 状态
     let _ = app.emit("autostart-changed", enabled);
     Ok(())
@@ -712,15 +636,9 @@ pub fn run() {
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let current = get_autostart_state(&app_handle).await;
-                    if is_store_version() {
-                        set_autostart_msix(!current).await.ok();
-                    } else {
-                        if current {
-                            app_handle.autolaunch().disable().ok();
-                        } else {
-                            app_handle.autolaunch().enable().ok();
-                        }
-                    }
+                    platform_autostart::set_state(&app_handle, !current)
+                        .await
+                        .ok();
                     // 通知前端同步状态
                     let enabled = get_autostart_state(&app_handle).await;
                     let _ = app_handle.emit("autostart-changed", enabled);
@@ -770,17 +688,19 @@ pub fn run() {
                 // 最小尺寸保护（防止配置丢失时窗口变成 1x1）
                 const MIN_WIDTH: u32 = 346;
                 const MIN_HEIGHT: u32 = 472;
-                let width = (config.width as u32).max(MIN_WIDTH);
-                let height = (config.height as u32).max(MIN_HEIGHT);
+                // 配置按逻辑尺寸（CSS px）保存：Windows 上 1:1，macOS 2x 屏上
+                // 用 PhysicalSize 会把窗口缩成一半，导致内容被裁切
+                let width = config.width.max(MIN_WIDTH as f64);
+                let height = config.height.max(MIN_HEIGHT as f64);
 
                 // 设置窗口尺寸
-                let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
                     width,
                     height,
                 }));
 
                 // 打印窗口尺寸（启动时一次性记录）
-                let msg = format!("窗口尺寸: {}x{} px (config: {}x{}, min: {}x{})", width, height, config.width, config.height, MIN_WIDTH, MIN_HEIGHT);
+                let msg = format!("窗口逻辑尺寸: {width}x{height} (config: {}x{}, min: {}x{})", config.width, config.height, MIN_WIDTH, MIN_HEIGHT);
                 let logger = app.state::<SessionLogger>();
                 logger.log(&msg);
                 window_size_msg = Some(msg);
@@ -790,14 +710,17 @@ pub fn run() {
 
                 // 监听窗口事件
                 let window_config_clone = window_config_state.clone();
+                let window_for_events = window.clone();
                 let app_handle_for_close = app.handle().clone();
                 window.on_window_event(move |event| {
                     match event {
                         tauri::WindowEvent::Resized(size) => {
                             let mut config = window_config_clone.get_config();
-                            // 保存时也强制最小尺寸保护
-                            config.width = (size.width as f64).max(346.0);
-                            config.height = (size.height as f64).max(472.0);
+                            // Resized 给的是物理像素；按当前缩放比换算回逻辑尺寸，
+                            // 保证在 Retina / 多显示器之间切换时大小稳定
+                            let scale = window_for_events.scale_factor().unwrap_or(1.0);
+                            config.width = (size.width as f64 / scale).max(MIN_WIDTH as f64);
+                            config.height = (size.height as f64 / scale).max(MIN_HEIGHT as f64);
                             window_config_clone.update_and_save(config);
                         }
                         // 拦截关闭请求，隐藏到托盘而不是真正关闭

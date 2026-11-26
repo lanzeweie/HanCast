@@ -415,6 +415,10 @@ class DLNAServer:
         """停止服务器"""
         if self._server:
             self._server.shutdown()
+            # shutdown() 只停 serve_forever，监听 socket 仍占着端口；
+            # 必须 server_close() 才能在 macOS/Linux 上重新绑定同一端口
+            self._server.server_close()
+            self._server = None
             logger.info("DLNA server stopped")
 
     def get_port(self) -> int:

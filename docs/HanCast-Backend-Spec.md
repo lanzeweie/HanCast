@@ -1432,7 +1432,7 @@ PyInstaller.__main__.run([
     "--console",
     "--add-data", "hancast_sidecar/xml:hancast_sidecar/xml",
     "--hidden-import", "lxml",
-    "--hidden-import", "netifaces",
+    "--hidden-import", "psutil",
     "--hidden-import", "aiohttp",
 ])
 ```

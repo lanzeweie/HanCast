@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "node scripts/tauri-cli.cjs",
     "build:sidecar": "cd hancast-backend && uv sync --all-extras && uv run python scripts/build_sidecar.py",
     "version": "node -p \"require('./package.json').version\"",
     "version:sync": "node scripts/sync-version.cjs",

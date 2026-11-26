@@ -252,7 +252,7 @@ requires-python = ">=3.11"
 dependencies = [
     "requests>=2.28.0",
     "lxml>=4.9.0",
-    "netifaces>=0.11.0",
+    "psutil>=5.9.0",
 ]
 ```
 
@@ -261,7 +261,7 @@ dependencies = [
 ### 启动开发环境
 ```bash
 # 启动 Tauri 开发模式（自动启动 Vite 前端 + Python Sidecar）
-cargo tauri dev
+npm run tauri dev
 
 # 仅前端开发（浏览器模式，使用 mock 数据）
 npm run dev
@@ -273,9 +273,9 @@ cd hancast-backend && uv run python -m hancast_sidecar.main
 ### 生产构建
 ```bash
 # 构建 Tauri 应用（prebuild 自动同步版本号）
-cargo tauri build
+npm run tauri build
 
-# 构建 Python Sidecar（PyInstaller）
+# 构建 Python Sidecar（Nuitka）
 cd hancast-backend && python scripts/build_sidecar.py
 ```
 

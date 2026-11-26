@@ -1,6 +1,6 @@
 # Macast-Han 开发进度
 
-## 当前阶段: Phase 1 — macOS 核心链路（MVP）
+## 当前阶段: Phase 2 — macOS 可分发打包
 
 **最后更新**: 2026-11-26
 
@@ -10,9 +10,50 @@
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
-| Phase 1: macOS 核心功能 | 🔄 进行中 | MPV/SSDP/DLNA/退出清理已跑通 |
+| Phase 1: macOS 核心功能 | ✅ 已完成 | MPV/SSDP/DLNA/退出清理已跑通 |
+| Phase 2: macOS 可分发打包 | ✅ 自用链路完成 | mac-build.sh 产出 signed .app + DMG，ad-hoc |
 | 真实设备验收 | ⏳ 待开始 | 手机投 Mac、Mac 投电视（无电视） |
-| 打包签名 | ⏳ 待开始 | 当前 ad-hoc，分发需稳定签名 |
+| 正式发版 | ⏳ 待开始 | Developer ID + 公证 + staple；Intel 未构建 |
+
+---
+
+## 2026-11-26 — Phase 2 macOS 打包
+
+### 已完成并验证
+- 配置按平台拆分：`tauri.conf.json` 只保留公共项，Windows 专属
+  `externalBin`/`*.dll`/`*.pyd`/`mpv/*` 移到 `tauri.windows.conf.json`；
+  macOS 配置放 `tauri.macos.conf.json`（数组是整体替换，不合并）
+- macOS 资源：
+  - Nuitka 整套 `hancast-sidecar/**/*` → `Contents/Resources/hancast-sidecar/`
+  - `mpv` 整个目录 → `Contents/Resources/mpv/`，内含完整 `mpv.app`
+- `minimumSystemVersion` 14.0（与捆绑 mpv.app 的 `minos` 对齐），
+  `infoPlist` 显式指向 `src-tauri/Info.plist`
+- `mpv_manager` 增加 macOS 打包布局识别：
+  `cwd=Resources/hancast-sidecar` 时向上一层找到 `Resources/mpv/mpv.app`，
+  优先 bundled，Homebrew 仅作开发回退
+- 新增 `mac-build.sh`：对齐 windows-build.ps1 流程，含
+  `--rebuild-sidecar` / `--clean-cache` / `--skip-sidecar` / `--skip-mpv` /
+  `--no-dmg` / `--download-mpv`
+- 新增 `src-tauri/entitlements/{sidecar,mpv}.entitlements`
+  （`com.apple.security.cs.disable-library-validation`，Hardened Runtime 时启用）
+- 签名顺序：sidecar 内 `.so/.dylib` → sidecar 主二进制 → mpv.app 内部 → mpv.app 外壳
+  → Tauri 签外层 .app（Tauri 不递归 Resources，嵌套签名会保留）
+
+### 验证结果
+- `./mac-build.sh --skip-sidecar` 成功产出
+  `HanCast.app`（108M）与 `HanCast_2.1.0_aarch64.dmg`（44M）
+- DMG 挂载后 `codesign --verify --strict` 通过，mpv.app/sidecar 签名均在
+- 打包版 sidecar 空环境启动、SSDP 发现真实设备、exit 清理正常
+- `MpvManager.check()` 在打包布局下返回 `source=bundled`，
+  路径为 `Resources/mpv/mpv.app/Contents/MacOS/mpv`
+- mpv.app 自包含检查通过：仅引用 `@executable_path/lib/*` 与系统库，无 Homebrew 路径
+
+### 已知限制
+- 当前下载的第三方 mpv.app（stolendata 0.40.0）Mach-O `minos=14.0`，
+  因此 `minimumSystemVersion` 已提到 14.0，macOS 12/13 不再宣称支持。
+  脚本会从 tauri.macos.conf.json 读取该值并与 mpv 的 minos 对比告警。
+- 仅 aarch64；Intel 需要单独构建。
+- ad-hoc 签名本机可用，发给他人仍需手动放行；正式发版需 Developer ID + 公证。
 
 ---
 

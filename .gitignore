@@ -79,6 +79,8 @@ Macast-main/
 
 # ── MPV 播放器 (外部依赖，不纳入版本控制) ──
 mpv/
+# 第三方自包含 mpv.app 的下载/解压缓存
+vendor/
 
 .understand-anything/
 

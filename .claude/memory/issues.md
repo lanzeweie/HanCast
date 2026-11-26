@@ -46,6 +46,16 @@
 - **问题**: 每个平台的窗口特效 API 不同
 - **解决**: 使用 tauri-plugin-vibrancy 抽象层
 
+### COMP-004: macOS 声明的最低版本低于捆绑 mpv
+- **平台**: macOS arm64
+- **状态**: 🟢 已解决（2026-11-26）
+- **问题**: `tauri.macos.conf.json` 曾设 `minimumSystemVersion=12.0`，但当前
+  第三方自包含 mpv.app（stolendata 0.40.0）的 Mach-O `minos=14.0`；
+  在 macOS 12/13 上应用能开，MPV 起不来。
+- **检测**: `mac-build.sh` 从 tauri.macos.conf.json 读取配置值，
+  用 `vtool -show-build` 读取 mpv minos，高于配置时告警。
+- **解决**: 已将 minimumSystemVersion 提高到 14.0，与捆绑 mpv 对齐。
+
 ---
 
 ## 架构风险

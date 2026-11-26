@@ -80,6 +80,36 @@
 - **风险**: ad-hoc 签名在换路径/换 bundle ID 后 TCC 身份不稳定，可能不再弹窗；
   正式分发应使用稳定的 Apple Development / Developer ID 签名。
 
+### DEC-008: Tauri 配置按平台拆分
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 2）
+- **决策**: `tauri.conf.json` 只保留公共配置；Windows 专属
+  `externalBin` / `*.dll` / `*.pyd` / `mpv/*` 移到 `tauri.windows.conf.json`，
+  macOS 资源与签名配置放 `tauri.macos.conf.json`。
+- **理由**: 平台配置按 JSON Merge Patch 合并，数组整体替换；混在主配置里会让
+  macOS 误带 Windows 资源，也会让 Windows 校验不存在的 mac 路径。
+- **注意**: 平台文件由 Tauri 自动加载；CLI `--config` 最后合并，可用于正式签名覆盖。
+
+### DEC-009: macOS 整包分发 mpv.app
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 2）
+- **决策**: 不拆二进制，整个 `mpv.app` 放 `Contents/Resources/mpv/mpv.app`，
+  sidecar 执行 `Contents/MacOS/mpv`。
+- **理由**: mpv 依赖 `@executable_path/lib/*.dylib`，只拷主程序会丢失依赖；
+  Homebrew 版引用 `/opt/homebrew`，不可分发。
+- **校验**: `mac-build.sh` 用 `otool -L` 扫描，出现 Homebrew/本机绝对路径即失败。
+
+### DEC-010: 嵌套签名顺序与 entitlements
+- **日期**: 2026-11-26
+- **状态**: ✅ 已实施（Phase 2）
+- **决策**: sidecar 的 `.so/.dylib` → sidecar 主程序 → mpv.app 内部 →
+  mpv.app 外壳 → Tauri 外层 .app；Hardened Runtime 时主程序带
+  `disable-library-validation`。
+- **理由**: ad-hoc 没有 Team ID，开启 Hardened Runtime 后库验证会拒绝加载
+  自己签的 dylib。Tauri 签名只覆盖框架/外部二进制/外层 .app，不递归 Resources，
+  所以嵌套签名会保留。
+- **正式发版**: Developer ID + 公证（Tauri 读 APPLE_* 环境变量自动提交并 staple）。
+
 ## 待决策事项
 
 ### PENDING-001: Python HTTP 框架

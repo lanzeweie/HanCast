@@ -272,12 +272,29 @@ cd hancast-backend && uv run python -m hancast_sidecar.main
 
 ### 生产构建
 ```bash
-# 构建 Tauri 应用（prebuild 自动同步版本号）
+# Windows：交互式/参数式构建（sidecar + mpv + Tauri）
+.\windows-build.ps1
+
+# macOS：aarch64，产出 signed .app + DMG
+./mac-build.sh                        # 增量构建
+./mac-build.sh --rebuild-sidecar      # 强制重编 Nuitka sidecar
+./mac-build.sh --download-mpv         # 下载固定自包含 mpv.app 到 vendor/
+
+# 直接构建 Tauri（需已准备 src-tauri/hancast-sidecar 与 src-tauri/mpv）
 npm run tauri build
 
 # 构建 Python Sidecar（Nuitka）
-cd hancast-backend && python scripts/build_sidecar.py
+cd hancast-backend && uv run python scripts/build_sidecar.py
 ```
+
+**平台配置**：`tauri.conf.json` 只放公共项；Windows 的 externalBin/resources
+在 `tauri.windows.conf.json`，macOS 在 `tauri.macos.conf.json`
+（Tauri 自动合并，数组整体替换）。
+
+**macOS 签名**：`mac-build.sh` 先递归签 sidecar/mpv.app 再让 Tauri 签外层；
+默认 ad-hoc（`signingIdentity: "-"`），正式发版设置
+`SIGN_IDENTITY="Developer ID Application: ..."` 并配置 `APPLE_ID` / `APPLE_PASSWORD` /
+`APPLE_TEAM_ID`（或 API Key）环境变量，Tauri 会自动公证并 staple。
 
 ### 构建产物路径
 

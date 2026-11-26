@@ -14,7 +14,7 @@ export const useSettingsStore = defineStore('settings', () => {
     usn: '',
     friendly_name: 'HanCast',
     protocol: 'dlna',
-    version: '2.1.0',
+    version: '2.1.4',
     media_port: 8080,
     default_device: null,
     settings: {},

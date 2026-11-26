@@ -158,6 +158,11 @@ class MpvManager:
             ├── hancast_sidecar/
             └── *.dll, *.pyd
 
+        macOS 打包后（Tauri 资源）:
+            Contents/Resources/
+            ├── hancast-sidecar/          ← sidecar 的 current_dir
+            └── mpv/mpv.app/Contents/MacOS/mpv
+
         开发环境:
             项目根/
             ├── mpv/mpv.exe
@@ -168,6 +173,10 @@ class MpvManager:
             os.getcwd(),  # Rust 设置的 current_dir
             os.path.dirname(sys.executable),  # sidecar exe 所在目录
         ]
+        if sys.platform == "darwin":
+            # 打包后 sidecar 的工作目录是 Contents/Resources/hancast-sidecar/，
+            # 而 mpv.app 作为资源放在 Contents/Resources/mpv/，需要再上一层查找。
+            candidates += [os.path.dirname(p) for p in candidates]
 
         mpv_names = ("mpv.exe", "mpv")
         for path in candidates:
@@ -175,6 +184,13 @@ class MpvManager:
                 mpv_path = os.path.join(path, "mpv", name)
                 if os.path.isfile(mpv_path):
                     logger.info(f"[MPV Manager] Found mpv at: {path}")
+                    return path
+            if sys.platform == "darwin":
+                app_binary = os.path.join(
+                    path, "mpv", "mpv.app", "Contents", "MacOS", "mpv"
+                )
+                if os.path.isfile(app_binary):
+                    logger.info(f"[MPV Manager] Found bundled mpv.app at: {path}")
                     return path
 
         # 开发环境：向上 4 级
@@ -194,6 +210,13 @@ class MpvManager:
             candidates = [
                 os.path.join(self.mpv_dir, "mpv.exe"),
                 os.path.join(self.mpv_dir, "mpv-x86_64", "mpv.exe"),
+            ]
+        elif sys.platform == "darwin":
+            # 分发时整包放入 Resources/mpv/mpv.app，不能只拷 Contents/MacOS/mpv，
+            # 否则 dylib/framework 的相对路径会失效。
+            candidates = [
+                os.path.join(self.mpv_dir, "mpv.app", "Contents", "MacOS", "mpv"),
+                os.path.join(self.mpv_dir, "mpv"),
             ]
         else:
             candidates = [

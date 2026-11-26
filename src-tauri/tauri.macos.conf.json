@@ -3,9 +3,12 @@
   "bundle": {
     "externalBin": [],
     "resources": [
-      "hancast-sidecar/**/*"
+      "hancast-sidecar/**/*",
+      "mpv"
     ],
     "macOS": {
+      "minimumSystemVersion": "14.0",
+      "infoPlist": "Info.plist",
       "signingIdentity": "-",
       "hardenedRuntime": false
     }

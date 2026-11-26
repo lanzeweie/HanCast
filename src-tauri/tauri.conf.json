@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicbarker/tauri/v2/core/tauri-config-schema/schema.json",
   "productName": "HanCast",
-  "version": "2.1.0",
+  "version": "2.1.4",
   "identifier": "com.han.hancast",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -43,17 +43,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["hancast-sidecar/hancast-sidecar"],
-    "resources": [
-      "mpv/*",
-      "mpv/portable_config/**/*",
-      "*.dll",
-      "*.pyd",
-      "hancast_sidecar/**/*",
-      "certifi/**/*",
-      "lxml/**/*",
-      "charset_normalizer/**/*"
-    ],
     "windows": {
       "nsis": {
         "languages": ["SimpChinese", "English"]

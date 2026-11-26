@@ -115,7 +115,7 @@ def build(force=False):
         f"--include-data-dir={xml_dir}=hancast_sidecar/xml",
         "--include-package=hancast_sidecar",
         "--include-package=lxml",
-        "--include-package=netifaces",
+        "--include-package=psutil",
         "--nofollow-import-to=tkinter,unittest,test,distutils,setuptools,pip,_pytest,pytest",
         "--enable-plugin=anti-bloat",
         "--no-progress",

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import { minimizeWindow, closeWindow } from '@/api/commands'
+import { isMacOS } from '@/utils/platform'
 import Modal from '@/components/Modal.vue'
 
 const router = useRouter()
@@ -44,7 +45,12 @@ function cancelClose() {
 </script>
 
 <template>
-  <header class="title-bar">
+  <!-- macOS WKWebView 不认 -webkit-app-region，需要 Tauri 的 drag-region -->
+  <header
+    class="title-bar"
+    :class="{ 'title-bar--mac': isMacOS }"
+    :data-tauri-drag-region="isMacOS ? 'deep' : undefined"
+  >
     <div class="title-bar__left">
       <img class="title-bar__logo" src="@/assets/icon.svg" alt="HanCast" width="22" height="22" />
       <span class="title-bar__title">{{ t('app.title') }}</span>
@@ -69,12 +75,23 @@ function cancelClose() {
           <circle cx="12" cy="12" r="3" />
         </svg>
       </button>
-      <button class="title-bar__btn" @click="minimizeWindow" :title="t('controller.minimize')">
+      <!-- macOS 使用原生红绿灯，隐藏自绘最小化/关闭 -->
+      <button
+        v-if="!isMacOS"
+        class="title-bar__btn"
+        @click="minimizeWindow"
+        :title="t('controller.minimize')"
+      >
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M5 12h14" />
         </svg>
       </button>
-      <button class="title-bar__btn title-bar__btn--close" @click="handleCloseClick" :title="t('controller.close')">
+      <button
+        v-if="!isMacOS"
+        class="title-bar__btn title-bar__btn--close"
+        @click="handleCloseClick"
+        :title="t('controller.close')"
+      >
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12" />
         </svg>
@@ -83,9 +100,14 @@ function cancelClose() {
   </header>
 
   <!-- Close confirmation modal -->
-  <Modal size="mini" :visible="showCloseModal" :title="t('close.title')" @close="cancelClose">
+  <Modal
+    size="mini"
+    :visible="showCloseModal"
+    :title="isMacOS ? t('close.titleMac') : t('close.title')"
+    @close="cancelClose"
+  >
     <div class="close-modal-content">
-      <p class="close-modal-message">{{ t('close.message') }}</p>
+      <p class="close-modal-message">{{ isMacOS ? t('close.messageMac') : t('close.message') }}</p>
       <label class="close-modal-checkbox">
         <input type="checkbox" v-model="dontRemindAgain" />
         <span>{{ t('close.dontRemind') }}</span>
@@ -108,6 +130,14 @@ function cancelClose() {
   -webkit-app-region: drag;
   user-select: none;
   flex-shrink: 0;
+}
+
+/* macOS 用 data-tauri-drag-region（WKWebView 不支持 app-region）；
+   关掉 CSS 拖拽，避免可能的双击/事件吞掉 */
+.title-bar--mac {
+  -webkit-app-region: no-drag;
+  /* 给原生红绿灯留出位置 */
+  padding-left: 78px;
 }
 
 .title-bar__left {

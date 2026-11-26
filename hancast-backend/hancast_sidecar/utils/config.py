@@ -49,7 +49,7 @@ class Config:
         # platform.node() 在某些系统上可能返回空字符串，使用 fallback
         node_name = platform.node() or f"Macast-{uuid.uuid4().hex[:8]}"
         self.friendly_name = f"HanCast({node_name})"
-        self.version = "2.1.0"
+        self.version = "2.1.4"
         self.usn = str(uuid.uuid4())
 
         # 确保配置目录存在

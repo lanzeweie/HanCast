@@ -252,7 +252,7 @@ requires-python = ">=3.11"
 dependencies = [
     "requests>=2.28.0",
     "lxml>=4.9.0",
-    "netifaces>=0.11.0",
+    "psutil>=5.9.0",
 ]
 ```
 
@@ -261,7 +261,7 @@ dependencies = [
 ### 启动开发环境
 ```bash
 # 启动 Tauri 开发模式（自动启动 Vite 前端 + Python Sidecar）
-cargo tauri dev
+npm run tauri dev
 
 # 仅前端开发（浏览器模式，使用 mock 数据）
 npm run dev
@@ -272,12 +272,29 @@ cd hancast-backend && uv run python -m hancast_sidecar.main
 
 ### 生产构建
 ```bash
-# 构建 Tauri 应用（prebuild 自动同步版本号）
-cargo tauri build
+# Windows：交互式/参数式构建（sidecar + mpv + Tauri）
+.\windows-build.ps1
 
-# 构建 Python Sidecar（PyInstaller）
-cd hancast-backend && python scripts/build_sidecar.py
+# macOS：aarch64，产出 signed .app + DMG
+./mac-build.sh                        # 增量构建
+./mac-build.sh --rebuild-sidecar      # 强制重编 Nuitka sidecar
+./mac-build.sh --download-mpv         # 下载固定自包含 mpv.app 到 vendor/
+
+# 直接构建 Tauri（需已准备 src-tauri/hancast-sidecar 与 src-tauri/mpv）
+npm run tauri build
+
+# 构建 Python Sidecar（Nuitka）
+cd hancast-backend && uv run python scripts/build_sidecar.py
 ```
+
+**平台配置**：`tauri.conf.json` 只放公共项；Windows 的 externalBin/resources
+在 `tauri.windows.conf.json`，macOS 在 `tauri.macos.conf.json`
+（Tauri 自动合并，数组整体替换）。
+
+**macOS 签名**：`mac-build.sh` 先递归签 sidecar/mpv.app 再让 Tauri 签外层；
+默认 ad-hoc（`signingIdentity: "-"`），正式发版设置
+`SIGN_IDENTITY="Developer ID Application: ..."` 并配置 `APPLE_ID` / `APPLE_PASSWORD` /
+`APPLE_TEAM_ID`（或 API Key）环境变量，Tauri 会自动公证并 staple。
 
 ### 构建产物路径
 
@@ -369,18 +386,38 @@ npm run test
 
 ## 窗口配置
 
+基础配置在 `tauri.conf.json`（Windows 使用自绘标题栏）：
+
 ```json
 {
-  "width": 420,
-  "height": 600,
-  "minWidth": 360,
-  "minHeight": 480,
+  "width": 434,
+  "height": 634,
+  "minWidth": 346,
+  "minHeight": 472,
   "maxWidth": 800,
   "maxHeight": 900,
   "decorations": false,
   "transparent": true
 }
 ```
+
+macOS 在 `tauri.macos.conf.json` 中用整段 `app.windows` 覆盖（平台配置的数组
+是整体替换，不是逐字段合并）：
+
+```json
+{
+  "decorations": true,
+  "titleBarStyle": "Overlay",
+  "hiddenTitle": true,
+  "transparent": true
+}
+```
+
+前端按 `isMacOS` 隐藏自绘最小化/关闭按钮，标题栏左侧留 78px 给原生红绿灯；
+WKWebView 不支持 `-webkit-app-region`，拖动依赖
+`data-tauri-drag-region="deep"`，并在 `capabilities/default.json` 显式授予
+`core:window:allow-start-dragging`（Tauri v2 的 `core:window:default` 不含
+start_dragging，缺了会静默失效）。改窗口尺寸/参数时需同步两份 windows 配置。
 
 **注意**: 窗口特效（vibrancy/blur）尚未实现，当前仅使用透明窗口。
 

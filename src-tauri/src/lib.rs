@@ -1,7 +1,9 @@
+mod platform_autostart;
 mod sidecar;
 
 use serde::{Deserialize, Serialize};
 use sidecar::SidecarManager;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::fs;
 use std::path::PathBuf;
@@ -10,22 +12,24 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, State,
 };
-use tauri_plugin_autostart::ManagerExt;
+#[cfg(target_os = "macos")]
+use tauri::menu::{AboutMetadata, Menu as AppMenu, PredefinedMenuItem, Submenu};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use chrono::Local;
 
-#[cfg(target_os = "windows")]
-use windows::{
-    ApplicationModel::{StartupTask, StartupTaskState},
-    core::HSTRING,
-};
+/// 退出清理状态：0=运行中，1=清理中，2=清理完成。
+/// `AppHandle::exit()` 会再次触发 `RunEvent::ExitRequested`，没有状态机会无限
+/// 阻止退出；清理期间重复的退出请求也继续拦下，避免提前退出留下孤儿 MPV。
+static EXIT_STATE: AtomicU8 = AtomicU8::new(0);
+const EXIT_CLEANING: u8 = 1;
+const EXIT_READY: u8 = 2;
 
-/// 窗口配置数据结构
+/// 窗口配置数据结构（尺寸为逻辑像素 / CSS px，与 tauri.conf 一致）
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct WindowConfig {
-    /// 窗口宽度
+    /// 窗口宽度（逻辑像素）
     width: f64,
-    /// 窗口高度
+    /// 窗口高度（逻辑像素）
     height: f64,
 }
 
@@ -148,6 +152,128 @@ impl SessionLogger {
     }
 }
 
+/// macOS 应用防火墙状态（socketfilterfw 的全局状态）。
+///
+/// 首次接收投屏时系统可能弹「允许传入连接」；拒绝后 SSDP(1900/UDP) 与
+/// DLNA(8080/TCP) 都会被拦截。状态用于设置页指引与启动日志。
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct FirewallStatus {
+    supported: bool,
+    /// socketfilterfw 的 State：0=关闭，1=开启，2=阻止所有传入连接
+    state: u8,
+    enabled: bool,
+    block_all: bool,
+    stealth: bool,
+    detail: String,
+}
+
+#[cfg(target_os = "macos")]
+fn read_firewall_status() -> FirewallStatus {
+    let mut status = FirewallStatus {
+        supported: true,
+        state: 0,
+        enabled: false,
+        block_all: false,
+        stealth: false,
+        detail: String::new(),
+    };
+
+    match std::process::Command::new("/usr/libexec/ApplicationFirewall/socketfilterfw")
+        .arg("--getglobalstate")
+        .output()
+    {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            // 输出形如 "Firewall is enabled. (State = 1)"
+            if let Some(idx) = text.find("State = ") {
+                status.state = text[idx + "State = ".len()..]
+                    .chars()
+                    .next()
+                    .and_then(|c| c.to_digit(10))
+                    .unwrap_or(0) as u8;
+            }
+            status.enabled = status.state != 0;
+            status.block_all = status.state == 2;
+            status.detail = text;
+        }
+        Err(e) => {
+            status.detail = format!("无法读取防火墙状态: {e}");
+        }
+    }
+
+    if let Ok(out) = std::process::Command::new("/usr/libexec/ApplicationFirewall/socketfilterfw")
+        .arg("--getstealthmode")
+        .output()
+    {
+        status.stealth = String::from_utf8_lossy(&out.stdout).contains(" on");
+    }
+
+    status
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_firewall_status() -> FirewallStatus {
+    FirewallStatus {
+        supported: false,
+        state: 0,
+        enabled: false,
+        block_all: false,
+        stealth: false,
+        detail: "仅 macOS 使用应用防火墙".to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn log_firewall_status(logger: &SessionLogger) {
+    let status = read_firewall_status();
+    if status.block_all {
+        logger.log(
+            "防火墙已开启（阻止所有传入连接）：手机将无法发现或连接到本机，\
+             请在 系统设置 → 网络 → 防火墙 → 选项 中放行 HanCast",
+        );
+    } else if status.enabled {
+        logger.log(
+            "防火墙已开启：首次接收投屏若出现“允许传入连接”请选择允许；\
+             误点拒绝后需在 系统设置 → 网络 → 防火墙 → 选项 中放行 HanCast/hancast-sidecar",
+        );
+    } else {
+        logger.log("防火墙未开启：接收投屏不受应用防火墙限制");
+    }
+}
+
+#[tauri::command]
+fn get_firewall_status() -> FirewallStatus {
+    read_firewall_status()
+}
+
+/// 打开系统防火墙设置面板（macOS 14+ 在“网络”设置内）。
+#[tauri::command]
+fn open_firewall_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        for url in [
+            "x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall",
+            "x-apple.systempreferences:com.apple.Network-Settings.extension",
+            "x-apple.systempreferences:com.apple.preference.security?Firewall",
+        ] {
+            if std::process::Command::new("/usr/bin/open")
+                .arg(url)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+        }
+        Err("无法打开系统防火墙设置".to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("仅 macOS 支持该操作".to_string())
+    }
+}
+
 #[tauri::command]
 fn minimize_window(window: tauri::Window) {
     window.minimize().ok();
@@ -157,6 +283,69 @@ fn minimize_window(window: tauri::Window) {
 fn close_window(window: tauri::Window) {
     // Hide to tray instead of closing
     window.hide().ok();
+}
+
+/// macOS 本地网络隐私授权。
+///
+/// SSDP 多播由 Python sidecar 执行，但 sidecar 不是 App Bundle，TCC 无法为它
+/// 弹授权窗口，会直接静默拒绝（sendto 返回 EHOSTUNREACH）。先由主 App 访问
+/// 本地网络（TCP 连默认网关 + SSDP 多播），让弹窗归属到 HanCast 主 App；
+/// 授权后 sidecar 的发送才会被放行。
+#[cfg(target_os = "macos")]
+fn warm_up_local_network(logger: &SessionLogger) {
+    use std::net::{SocketAddr, TcpStream, UdpSocket};
+    use std::time::Duration;
+
+    // 1) TCP 连接默认网关：比 UDP 多播更可靠地触发 Local Network 授权
+    if let Some(gateway) = default_gateway() {
+        for port in [80u16, 53, 443] {
+            let addr = SocketAddr::from((gateway, port));
+            match TcpStream::connect_timeout(&addr, Duration::from_millis(300)) {
+                Ok(_) => {
+                    logger.log(&format!("本地网络授权探测：已连接网关 {addr}"));
+                    break;
+                }
+                Err(e) => logger.log(&format!("本地网络探测 {addr}: {e}")),
+            }
+        }
+    } else {
+        logger.log("本地网络探测：未找到默认网关");
+    }
+
+    // 2) SSDP 多播探测（应用本身的第一条业务报文）
+    let probe: &[u8] = b"M-SEARCH * HTTP/1.1\r\n\
+HOST: 239.255.255.250:1900\r\n\
+MAN: \"ssdp:discover\"\r\n\
+MX: 1\r\n\
+ST: ssdp:all\r\n\r\n";
+
+    match UdpSocket::bind("0.0.0.0:0") {
+        Ok(sock) => {
+            sock.set_multicast_ttl_v4(2).ok();
+            match sock.send_to(probe, "239.255.255.250:1900") {
+                Ok(n) => logger.log(&format!("本地网络授权探测已发送 ({n} bytes)")),
+                Err(e) => logger.log(&format!(
+                    "本地网络探测发送失败（尚未授权时属正常）: {e}"
+                )),
+            }
+        }
+        Err(e) => logger.log(&format!("本地网络探测 socket 创建失败: {e}")),
+    }
+}
+
+/// 读取默认路由网关（`route -n get default` 输出中的 gateway 行）。
+#[cfg(target_os = "macos")]
+fn default_gateway() -> Option<std::net::Ipv4Addr> {
+    let output = std::process::Command::new("/sbin/route")
+        .args(["-n", "get", "default"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let value = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("gateway:"))?
+        .trim();
+    value.parse().ok()
 }
 
 // ── Device management ──
@@ -541,7 +730,16 @@ async fn export_logs(app: tauri::AppHandle) -> Result<bool, String> {
         PathBuf::from(home).join(".config").join("hancast").join("logs").join("hancast.log")
     };
 
-    if !log_path.exists() {
+    // Rust 侧会话日志（启动、网络授权、防火墙、自启等）与 Python 日志
+    // 不在同一目录，导出时合并到同一个文件，避免用户只拿到半份日志。
+    let rust_log_path = app
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("logs").join("hancast.log"))
+        .ok()
+        .filter(|p| p.exists());
+
+    if !log_path.exists() && rust_log_path.is_none() {
         return Err("日志文件不存在".to_string());
     }
 
@@ -558,8 +756,26 @@ async fn export_logs(app: tauri::AppHandle) -> Result<bool, String> {
     match file_path {
         Some(path) => {
             let path_buf = path.into_path().map_err(|e| format!("Invalid path: {e}"))?;
-            std::fs::copy(&log_path, &path_buf)
-                .map_err(|e| format!("复制日志文件失败: {e}"))?;
+
+            let read_log = |p: &std::path::Path| -> String {
+                std::fs::read(p)
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    .unwrap_or_default()
+            };
+
+            let mut content = String::new();
+            if let Some(rust_path) = &rust_log_path {
+                content.push_str("===== HanCast (Rust) =====\n");
+                content.push_str(&read_log(rust_path));
+                content.push_str("\n\n");
+            }
+            if log_path.exists() {
+                content.push_str("===== HanCast Sidecar (Python) =====\n");
+                content.push_str(&read_log(&log_path));
+            }
+
+            std::fs::write(&path_buf, content.as_bytes())
+                .map_err(|e| format!("写入日志文件失败: {e}"))?;
             Ok(true)
         }
         None => Ok(false), // 用户取消了对话框
@@ -578,99 +794,139 @@ fn protocol_menu_label(protocol: &str) -> String {
     }
 }
 
-/// MSIX StartupTask ID（与 AppxManifest.xml 中的 TaskId 一致）
-const STARTUP_TASK_ID: &str = "HanCastStartup";
-
 // ── Autostart ──
+// 平台分叉收在 platform_autostart 模块：Windows MSIX 走 WinRT，其余走插件。
 
-/// MSIX 环境下获取开机自启状态（使用 WinRT StartupTask API）
-#[cfg(target_os = "windows")]
-async fn get_autostart_msix() -> Result<bool, String> {
-    let task_id = HSTRING::from(STARTUP_TASK_ID);
-    let task = StartupTask::GetAsync(&task_id)
-        .map_err(|e| format!("获取启动任务失败: {e}"))?
-        .await
-        .map_err(|e| format!("等待启动任务失败: {e}"))?;
-
-    let state = task
-        .State()
-        .map_err(|e| format!("获取启动任务状态失败: {e}"))?;
-
-    Ok(state == StartupTaskState::Enabled)
-}
-
-/// MSIX 环境下设置开机自启状态（使用 WinRT StartupTask API）
-/// 参数通过 uap10:Parameters="--autostart" 在 AppxManifest.xml 中配置
-#[cfg(target_os = "windows")]
-async fn set_autostart_msix(enabled: bool) -> Result<(), String> {
-    let task_id = HSTRING::from(STARTUP_TASK_ID);
-    let task = StartupTask::GetAsync(&task_id)
-        .map_err(|e| format!("获取启动任务失败: {e}"))?
-        .await
-        .map_err(|e| format!("等待启动任务失败: {e}"))?;
-
-    if enabled {
-        task.RequestEnableAsync()
-            .map_err(|e| format!("请求启用启动任务失败: {e}"))?
-            .await
-            .map_err(|e| format!("等待启用结果失败: {e}"))?;
-        eprintln!("[Autostart] MSIX 开机自启已启用");
-    } else {
-        task.Disable()
-            .map_err(|e| format!("禁用启动任务失败: {e}"))?;
-        eprintln!("[Autostart] MSIX 开机自启已禁用");
-    }
-
-    Ok(())
-}
-
-/// 统一获取开机自启状态（根据环境自动选择实现）
 async fn get_autostart_state(app: &tauri::AppHandle) -> bool {
-    if is_store_version() {
-        get_autostart_msix().await.unwrap_or(false)
-    } else {
-        app.autolaunch().is_enabled().unwrap_or(false)
-    }
+    platform_autostart::get_state(app).await.unwrap_or(false)
 }
 
 #[tauri::command]
 async fn get_autostart(app: tauri::AppHandle) -> Result<bool, String> {
-    if is_store_version() {
-        // MSIX 环境：使用 WinRT StartupTask API
-        get_autostart_msix().await
-    } else {
-        // 非 MSIX 环境：使用 tauri-plugin-autostart
-        app.autolaunch()
-            .is_enabled()
-            .map_err(|e| e.to_string())
+    platform_autostart::get_state(&app).await
+}
+
+/// 写入开机自启并记录诊断信息（设置页与托盘菜单共用）。
+async fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let outcome = platform_autostart::set_state(app, enabled).await;
+
+    // LaunchAgent 的写入结果与参数是排查“登录不启动”的关键
+    if let Some(logger) = app.try_state::<SessionLogger>() {
+        match &outcome {
+            Ok(()) => {
+                logger.log(&format!(
+                    "开机自启已{}",
+                    if enabled { "启用" } else { "禁用" }
+                ));
+                #[cfg(target_os = "macos")]
+                logger.log(&platform_autostart::launch_agent_info(
+                    &app.package_info().name,
+                ));
+            }
+            Err(e) => logger.log(&format!("设置开机自启失败: {e}")),
+        }
     }
+
+    outcome
 }
 
 #[tauri::command]
 async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    if is_store_version() {
-        // MSIX 环境：使用 WinRT StartupTask API（参数通过 uap10:Parameters 传递）
-        set_autostart_msix(enabled).await?;
-    } else {
-        // 非 MSIX 环境：使用 tauri-plugin-autostart
-        if enabled {
-            app.autolaunch()
-                .enable()
-                .map_err(|e| e.to_string())?;
-        } else {
-            app.autolaunch()
-                .disable()
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    apply_autostart(&app, enabled).await?;
     // 通知托盘菜单同步 CheckMenuItem 状态
     let _ = app.emit("autostart-changed", enabled);
     Ok(())
 }
 
+/// macOS 应用菜单。
+///
+/// Tauri 默认菜单是英文标签，且没有 About 元数据定制；这里显式构建，
+/// 与托盘菜单一起保证「关于 / 隐藏 / 退出」完整，并保留编辑菜单的
+/// Cmd+C/V 等标准快捷键。`quit` 走 NSApp terminate → `ExitRequested`，
+/// 复用统一的 sidecar/MPV 清理流程（Cmd+Q 语义不变）。
+#[cfg(target_os = "macos")]
+fn setup_macos_menu(app: &tauri::App) -> tauri::Result<()> {
+    let pkg = app.package_info();
+    let about = AboutMetadata {
+        name: Some(pkg.name.clone()),
+        version: Some(pkg.version.to_string()),
+        copyright: Some("GPL-3.0 · 基于 xfangfang/Macast 的二次开发".to_string()),
+        credits: Some("https://github.com/lanzeweie/HanCast".to_string()),
+        ..Default::default()
+    };
+
+    // ── 应用菜单 ──
+    let about_item = PredefinedMenuItem::about(app, Some("关于 HanCast"), Some(about))?;
+    let app_sep1 = PredefinedMenuItem::separator(app)?;
+    let services = PredefinedMenuItem::services(app, Some("服务"))?;
+    let app_sep2 = PredefinedMenuItem::separator(app)?;
+    let hide = PredefinedMenuItem::hide(app, Some("隐藏 HanCast"))?;
+    let hide_others = PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?;
+    let show_all = PredefinedMenuItem::show_all(app, Some("显示全部"))?;
+    let app_sep3 = PredefinedMenuItem::separator(app)?;
+    let quit = PredefinedMenuItem::quit(app, Some("退出 HanCast"))?;
+
+    let app_menu = Submenu::with_items(
+        app,
+        "HanCast",
+        true,
+        &[
+            &about_item,
+            &app_sep1,
+            &services,
+            &app_sep2,
+            &hide,
+            &hide_others,
+            &show_all,
+            &app_sep3,
+            &quit,
+        ],
+    )?;
+
+    // ── 编辑菜单（文本输入框依赖这些标准快捷键）──
+    let undo = PredefinedMenuItem::undo(app, Some("撤销"))?;
+    let redo = PredefinedMenuItem::redo(app, Some("重做"))?;
+    let edit_sep1 = PredefinedMenuItem::separator(app)?;
+    let cut = PredefinedMenuItem::cut(app, Some("剪切"))?;
+    let copy = PredefinedMenuItem::copy(app, Some("复制"))?;
+    let paste = PredefinedMenuItem::paste(app, Some("粘贴"))?;
+    let select_all = PredefinedMenuItem::select_all(app, Some("全选"))?;
+
+    let edit_menu = Submenu::with_items(
+        app,
+        "编辑",
+        true,
+        &[&undo, &redo, &edit_sep1, &cut, &copy, &paste, &select_all],
+    )?;
+
+    // ── 显示菜单 ──
+    let fullscreen = PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?;
+    let view_menu = Submenu::with_items(app, "显示", true, &[&fullscreen])?;
+
+    // ── 窗口菜单（WINDOW_SUBMENU_ID 让 AppKit 识别为标准窗口菜单）──
+    let minimize = PredefinedMenuItem::minimize(app, Some("最小化"))?;
+    let zoom = PredefinedMenuItem::maximize(app, Some("缩放"))?;
+    let window_sep1 = PredefinedMenuItem::separator(app)?;
+    let bring_all = PredefinedMenuItem::bring_all_to_front(app, Some("前置全部窗口"))?;
+    let window_sep2 = PredefinedMenuItem::separator(app)?;
+    let close = PredefinedMenuItem::close_window(app, Some("关闭窗口"))?;
+
+    let window_menu = Submenu::with_id_and_items(
+        app,
+        tauri::menu::WINDOW_SUBMENU_ID,
+        "窗口",
+        true,
+        &[&minimize, &zoom, &window_sep1, &bring_all, &window_sep2, &close],
+    )?;
+
+    let menu = AppMenu::with_items(app, &[&app_menu, &edit_menu, &view_menu, &window_menu])?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -700,26 +956,15 @@ pub fn run() {
                     }
                 }
             } else if event.id() == "quit" {
-                // 优雅关闭：先通知 sidecar 清理（杀 MPV 等），再退出应用
-                let app_handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let sidecar = app_handle.state::<SidecarManager>();
-                    sidecar.shutdown().await;
-                    app_handle.exit(0);
-                });
+                // 统一走 RunEvent::ExitRequested：先清理 sidecar（连带 MPV），再退出
+                app.exit(0);
             } else if event.id() == "autostart" {
                 // CheckMenuItem 已自动切换 checked 状态，执行实际操作
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let current = get_autostart_state(&app_handle).await;
-                    if is_store_version() {
-                        set_autostart_msix(!current).await.ok();
-                    } else {
-                        if current {
-                            app_handle.autolaunch().disable().ok();
-                        } else {
-                            app_handle.autolaunch().enable().ok();
-                        }
+                    if let Err(e) = apply_autostart(&app_handle, !current).await {
+                        eprintln!("[Autostart] 切换失败: {e}");
                     }
                     // 通知前端同步状态
                     let enabled = get_autostart_state(&app_handle).await;
@@ -736,6 +981,20 @@ pub fn run() {
                 .join("logs");
             let logger = SessionLogger::new(&log_dir);
             logger.log("=== HanCast 启动 ===");
+
+            // macOS：显式应用菜单（关于 / 隐藏 / 退出 + 编辑 / 窗口）
+            #[cfg(target_os = "macos")]
+            setup_macos_menu(app)?;
+
+            // macOS：主进程先触发本地网络授权（弹窗归属到 HanCast），
+            // 再启动 Python sidecar，否则 sidecar 的 SSDP 发送会被静默拒绝
+            #[cfg(target_os = "macos")]
+            warm_up_local_network(&logger);
+
+            // macOS：记录应用防火墙状态，便于排查「手机搜不到 / 8080 不可达」
+            #[cfg(target_os = "macos")]
+            log_firewall_status(&logger);
+
             app.manage(logger);
 
             // 加载窗口配置
@@ -760,6 +1019,9 @@ pub fn run() {
 
             if should_start_minimized {
                 eprintln!("[Startup] 检测到启动参数，最小化到托盘");
+                app.state::<SessionLogger>().log(
+                    "检测到 --minimized/--autostart：窗口保持隐藏，仅显示托盘/菜单栏图标",
+                );
             }
 
             // 恢复窗口尺寸（窗口默认隐藏，设置好后再显示，避免闪烁）
@@ -770,17 +1032,19 @@ pub fn run() {
                 // 最小尺寸保护（防止配置丢失时窗口变成 1x1）
                 const MIN_WIDTH: u32 = 346;
                 const MIN_HEIGHT: u32 = 472;
-                let width = (config.width as u32).max(MIN_WIDTH);
-                let height = (config.height as u32).max(MIN_HEIGHT);
+                // 配置按逻辑尺寸（CSS px）保存：Windows 上 1:1，macOS 2x 屏上
+                // 用 PhysicalSize 会把窗口缩成一半，导致内容被裁切
+                let width = config.width.max(MIN_WIDTH as f64);
+                let height = config.height.max(MIN_HEIGHT as f64);
 
                 // 设置窗口尺寸
-                let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
                     width,
                     height,
                 }));
 
                 // 打印窗口尺寸（启动时一次性记录）
-                let msg = format!("窗口尺寸: {}x{} px (config: {}x{}, min: {}x{})", width, height, config.width, config.height, MIN_WIDTH, MIN_HEIGHT);
+                let msg = format!("窗口逻辑尺寸: {width}x{height} (config: {}x{}, min: {}x{})", config.width, config.height, MIN_WIDTH, MIN_HEIGHT);
                 let logger = app.state::<SessionLogger>();
                 logger.log(&msg);
                 window_size_msg = Some(msg);
@@ -790,14 +1054,17 @@ pub fn run() {
 
                 // 监听窗口事件
                 let window_config_clone = window_config_state.clone();
+                let window_for_events = window.clone();
                 let app_handle_for_close = app.handle().clone();
                 window.on_window_event(move |event| {
                     match event {
                         tauri::WindowEvent::Resized(size) => {
                             let mut config = window_config_clone.get_config();
-                            // 保存时也强制最小尺寸保护
-                            config.width = (size.width as f64).max(346.0);
-                            config.height = (size.height as f64).max(472.0);
+                            // Resized 给的是物理像素；按当前缩放比换算回逻辑尺寸，
+                            // 保证在 Retina / 多显示器之间切换时大小稳定
+                            let scale = window_for_events.scale_factor().unwrap_or(1.0);
+                            config.width = (size.width as f64 / scale).max(MIN_WIDTH as f64);
+                            config.height = (size.height as f64 / scale).max(MIN_HEIGHT as f64);
                             window_config_clone.update_and_save(config);
                         }
                         // 拦截关闭请求，隐藏到托盘而不是真正关闭
@@ -864,8 +1131,18 @@ pub fn run() {
                 .build()?;
 
             // Build tray icon (禁用左键弹出菜单，左键只显示窗口)
-            let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // macOS 菜单栏需要单色模板图（44px 源图由 tray-icon 缩放到 18pt）；
+            // 彩色应用图标在菜单栏会显得突兀，其他平台保持原样
+            #[cfg(target_os = "macos")]
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/trayTemplate.png"
+            ))
+            .expect("failed to load tray template icon");
+            #[cfg(not(target_os = "macos"))]
+            let tray_icon = app.default_window_icon().unwrap().clone();
+
+            let mut tray_builder = TrayIconBuilder::new()
+                .icon(tray_icon)
                 .tooltip(format!("HanCast v{}", env!("CARGO_PKG_VERSION")))
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -884,8 +1161,14 @@ pub fn run() {
                             let _ = window.set_focus();
                         }
                     }
-                })
-                .build(app)?;
+                });
+
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder.icon_as_template(true);
+            }
+
+            let tray = tray_builder.build(app)?;
 
             // Background task: startup update check (non-blocking, 2s timeout)
             let app_handle_update = app.handle().clone();
@@ -1053,7 +1336,52 @@ pub fn run() {
             is_store_version,
             get_autostart,
             set_autostart,
+            get_firewall_status,
+            open_firewall_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // 统一退出/重开入口：
+    // - ExitRequested：Cmd+Q、托盘“退出”、关闭最后一个窗口都会经过这里。
+    //   macOS 没有 Job Object，必须先等 sidecar 结束（它负责退出 MPV），
+    //   否则 MPV 会变成孤儿进程留在后台。
+    // - Reopen：点击 Dock 图标时把隐藏到托盘的窗口重新显示出来。
+    app.run(|app_handle, event| match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            if !has_visible_windows {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+        tauri::RunEvent::ExitRequested { api, .. } => {
+            match EXIT_STATE.load(Ordering::SeqCst) {
+                // 清理已完成，这是我们自己调用 exit() 触发的请求，放行
+                EXIT_READY => return,
+                // 清理进行中（用户重复按 Cmd+Q），继续拦下
+                EXIT_CLEANING => {
+                    api.prevent_exit();
+                    return;
+                }
+                _ => {}
+            }
+
+            EXIT_STATE.store(EXIT_CLEANING, Ordering::SeqCst);
+            api.prevent_exit();
+            let handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                handle.state::<SidecarManager>().shutdown().await;
+                EXIT_STATE.store(EXIT_READY, Ordering::SeqCst);
+                handle.exit(0);
+            });
+        }
+        _ => {}
+    });
 }

@@ -117,32 +117,29 @@ class SSDPService:
     def _get_all_interfaces(self) -> List[tuple]:
         """获取所有可用网络接口的 (ip, netmask) 列表
 
-        使用纯 socket 实现，确保在所有接口上注册 SSDP。
+        使用 psutil 枚举全部 IPv4 网卡。排除回环、链路本地地址和点对点
+        接口（VPN 的 utun/tun 没有广播域，不能承载 SSDP 多播）。
         Windows 上还需要包含常见的 ICS 热点网段。
         """
         interfaces = []
         try:
-            import netifaces
-            gateways = netifaces.gateways()
-            interface_names = set()
-            # 获取默认网关的接口
-            for gw_type in [netifaces.AF_INET, netifaces.AF_LINK]:
-                if gw_type in gateways:
-                    for gw in gateways[gw_type]:
-                        if len(gw) > 1:
-                            interface_names.add(gw[1])
-            for iface_name in interface_names:
-                try:
-                    addrs = netifaces.ifaddresses(iface_name)
-                    if netifaces.AF_INET in addrs:
-                        for addr in addrs[netifaces.AF_INET]:
-                            if 'addr' in addr and 'netmask' in addr:
-                                interfaces.append((addr['addr'], addr['netmask']))
-                except ValueError:
-                    continue
+            import psutil
+            for addrs in psutil.net_if_addrs().values():
+                for addr in addrs:
+                    if addr.family != socket.AF_INET:
+                        continue
+                    ip, netmask = addr.address, addr.netmask
+                    if not ip or ip.startswith(('127.', '169.254.')):
+                        continue
+                    # ptp 非空表示点对点隧道（如 macOS 的 utun）
+                    if getattr(addr, 'ptp', None):
+                        continue
+                    if not netmask:
+                        continue
+                    interfaces.append((ip, netmask))
         except ImportError:
-            # netifaces 不可用，回退到单 IP
-            logger.debug("netifaces not available, using single IP")
+            # psutil 不可用，回退到单 IP
+            logger.debug("psutil not available, using single IP")
 
         # 如果没有找到接口，使用默认 IP
         if not interfaces:

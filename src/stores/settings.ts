@@ -14,7 +14,7 @@ export const useSettingsStore = defineStore('settings', () => {
     usn: '',
     friendly_name: 'HanCast',
     protocol: 'dlna',
-    version: '2.1.0',
+    version: '2.1.4',
     media_port: 8080,
     default_device: null,
     settings: {},
@@ -43,6 +43,17 @@ export const useSettingsStore = defineStore('settings', () => {
       settings.value = await getSettings()
       autostart.value = await apiGetAutostart()
       initAutostartListener()
+
+      // 版本以 Tauri 应用包为准：sidecar 可能复用旧构建，常量会滞后
+      try {
+        const { getVersion } = await import('@tauri-apps/api/app')
+        const appVersion = await getVersion()
+        if (appVersion) {
+          settings.value = { ...settings.value, version: appVersion }
+        }
+      } catch {
+        // 浏览器开发模式没有 Tauri 运行时，忽略
+      }
     } catch (err) {
       console.error('Failed to fetch settings:', err)
     } finally {

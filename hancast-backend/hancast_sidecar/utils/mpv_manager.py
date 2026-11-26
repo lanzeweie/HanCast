@@ -5,15 +5,29 @@ MPV 已内置打包到程序目录 mpv/，本模块负责检测和路径配置�
 """
 
 import os
+import re
 import sys
+import shutil
+import hashlib
 import logging
 import subprocess
 from typing import Optional
 
 from ..models.mpv import MpvStatus, MpvInfo
-from .config import Config
+from .config import Config, SETTING_DIR
 
 logger = logging.getLogger("hancast.mpv_manager")
+
+# macOS 上 GUI 应用拿不到用户的 shell PATH（Homebrew 不在其中），必须显式查找。
+# 顺序：Apple Silicon Homebrew → Intel Homebrew → 官方 .app
+DARWIN_MPV_CANDIDATES = (
+    "/opt/homebrew/bin/mpv",
+    "/usr/local/bin/mpv",
+    "/Applications/mpv.app/Contents/MacOS/mpv",
+)
+
+# 便携配置同步标记：记录源目录清单摘要，避免每次启动都重复拷贝字体/脚本
+PORTABLE_STAMP_FILE = ".hancast-portable-stamp"
 
 
 class MpvManager:
@@ -23,6 +37,11 @@ class MpvManager:
         self.config = config
         self.base_path = self._get_base_path()
         self.mpv_dir = os.path.join(self.base_path, "mpv")
+        # macOS 下把 MPV 配置隔离到应用数据目录，再通过 --config-dir 指给 mpv。
+        # 其他平台沿用 mpv 自带的 portable_config 行为，不改变现有逻辑。
+        self.config_dir = (
+            os.path.join(SETTING_DIR, "mpv") if sys.platform == "darwin" else None
+        )
 
     # ────────────────────────────────────────
     # 公开接口
@@ -50,6 +69,14 @@ class MpvManager:
         if local:
             logger.info(f"[MPV Manager] Found bundled MPV: {local}")
             info = MpvInfo(status=MpvStatus.READY, path=local, source="bundled")
+            self._save_to_config(info)
+            return info
+
+        # 2.5 macOS 常见安装位置（Homebrew / .app）
+        explicit = self._find_in_macos_locations()
+        if explicit:
+            logger.info(f"[MPV Manager] Found macOS MPV: {explicit}")
+            info = MpvInfo(status=MpvStatus.READY, path=explicit, source="system")
             self._save_to_config(info)
             return info
 
@@ -88,6 +115,34 @@ class MpvManager:
         self._save_to_config(info)
         return info
 
+    def ensure_config_dir(self) -> Optional[str]:
+        """准备 macOS 用的 MPV 配置目录，返回应传给 `--config-dir` 的路径。
+
+        只有 macOS 返回路径；其他平台返回 None，保持 mpv 自身的 portable_config
+        查找逻辑不变。源目录（程序自带的 mpv/portable_config）存在时同步过去，
+        这样 Lua 脚本、字体、watch_later 都能生效；源目录缺失时只保证空目录存在，
+        由 mpv 使用默认配置。
+        """
+        if not self.config_dir:
+            return None
+
+        try:
+            os.makedirs(self.config_dir, exist_ok=True)
+        except OSError as e:
+            logger.error(f"[MPV Manager] Cannot create config dir {self.config_dir}: {e}")
+            return None
+
+        source = self._find_portable_config()
+        if source:
+            try:
+                self._sync_portable_config(source, self.config_dir)
+            except Exception as e:
+                logger.error(f"[MPV Manager] Failed to sync portable_config: {e}")
+        else:
+            logger.info("[MPV Manager] No portable_config found, using empty config dir")
+
+        return self.config_dir
+
     # ────────────────────────────────────────
     # 内部方法
     # ────────────────────────────────────────
@@ -103,6 +158,11 @@ class MpvManager:
             ├── hancast_sidecar/
             └── *.dll, *.pyd
 
+        macOS 打包后（Tauri 资源）:
+            Contents/Resources/
+            ├── hancast-sidecar/          ← sidecar 的 current_dir
+            └── mpv/mpv.app/Contents/MacOS/mpv
+
         开发环境:
             项目根/
             ├── mpv/mpv.exe
@@ -113,13 +173,25 @@ class MpvManager:
             os.getcwd(),  # Rust 设置的 current_dir
             os.path.dirname(sys.executable),  # sidecar exe 所在目录
         ]
+        if sys.platform == "darwin":
+            # 打包后 sidecar 的工作目录是 Contents/Resources/hancast-sidecar/，
+            # 而 mpv.app 作为资源放在 Contents/Resources/mpv/，需要再上一层查找。
+            candidates += [os.path.dirname(p) for p in candidates]
 
+        mpv_names = ("mpv.exe", "mpv")
         for path in candidates:
-            mpv_path = os.path.join(path, "mpv", "mpv.exe")
-            logger.info(f"[MPV Manager] Checking: {mpv_path}")
-            if os.path.isfile(mpv_path):
-                logger.info(f"[MPV Manager] Found mpv at: {path}")
-                return path
+            for name in mpv_names:
+                mpv_path = os.path.join(path, "mpv", name)
+                if os.path.isfile(mpv_path):
+                    logger.info(f"[MPV Manager] Found mpv at: {path}")
+                    return path
+            if sys.platform == "darwin":
+                app_binary = os.path.join(
+                    path, "mpv", "mpv.app", "Contents", "MacOS", "mpv"
+                )
+                if os.path.isfile(app_binary):
+                    logger.info(f"[MPV Manager] Found bundled mpv.app at: {path}")
+                    return path
 
         # 开发环境：向上 4 级
         dev_path = os.path.dirname(
@@ -138,6 +210,13 @@ class MpvManager:
             candidates = [
                 os.path.join(self.mpv_dir, "mpv.exe"),
                 os.path.join(self.mpv_dir, "mpv-x86_64", "mpv.exe"),
+            ]
+        elif sys.platform == "darwin":
+            # 分发时整包放入 Resources/mpv/mpv.app，不能只拷 Contents/MacOS/mpv，
+            # 否则 dylib/framework 的相对路径会失效。
+            candidates = [
+                os.path.join(self.mpv_dir, "mpv.app", "Contents", "MacOS", "mpv"),
+                os.path.join(self.mpv_dir, "mpv"),
             ]
         else:
             candidates = [
@@ -158,6 +237,19 @@ class MpvManager:
 
         return None
 
+    def _find_in_macos_locations(self) -> Optional[str]:
+        """macOS: 在 Homebrew / 官方 .app 的固定位置查找 mpv。
+
+        GUI 应用不继承登录 shell 的 PATH，`_find_in_path` 通常找不到 brew 安装的
+        mpv，所以这里按已知路径显式检查。
+        """
+        if sys.platform != "darwin":
+            return None
+        for candidate in DARWIN_MPV_CANDIDATES:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+        return None
+
     def _find_in_path(self) -> Optional[str]:
         """检查系统 PATH 中是否有 mpv"""
         mpv_name = "mpv.exe" if os.name == "nt" else "mpv"
@@ -167,6 +259,99 @@ class MpvManager:
                 return candidate
         return None
 
+    def _find_portable_config(self) -> Optional[str]:
+        """查找程序自带的 mpv/portable_config 源目录。"""
+        candidates = [
+            os.path.join(self.base_path, "mpv", "portable_config"),
+            os.path.join(os.path.dirname(sys.executable), "mpv", "portable_config"),
+            os.path.join(os.getcwd(), "mpv", "portable_config"),
+        ]
+        for path in candidates:
+            if os.path.isdir(path):
+                return os.path.abspath(path)
+        return None
+
+    def _folder_stamp(self, root: str) -> str:
+        """目录内容摘要：路径 + 大小 + mtime，用来判断源目录是否变化。"""
+        digest = hashlib.sha256()
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames.sort()
+            filenames.sort()
+            for name in filenames:
+                full = os.path.join(dirpath, name)
+                rel = os.path.relpath(full, root)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                digest.update(f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+        return digest.hexdigest()
+
+    def _sync_portable_config(self, source: str, dest: str):
+        """把 portable_config 同步到 macOS 配置目录（内容未变则跳过）。"""
+        stamp_path = os.path.join(dest, PORTABLE_STAMP_FILE)
+        stamp = self._folder_stamp(source)
+
+        try:
+            with open(stamp_path, "r", encoding="utf-8") as f:
+                if f.read().strip() == stamp:
+                    logger.info("[MPV Manager] portable_config unchanged, skip sync")
+                    return
+        except OSError:
+            pass
+
+        logger.info(f"[MPV Manager] Syncing portable_config: {source} -> {dest}")
+        # watch_later 是运行时进度，不能用打包时的空目录覆盖
+        shutil.copytree(
+            source,
+            dest,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("watch_later"),
+        )
+        self._disable_shaders_on_macos(dest)
+
+        try:
+            with open(stamp_path, "w", encoding="utf-8") as f:
+                f.write(stamp)
+        except OSError as e:
+            logger.warning(f"[MPV Manager] Cannot write stamp file: {e}")
+
+    def _disable_shaders_on_macos(self, dest: str):
+        """macOS 的 Metal 后端对部分 GLSL 着色器（如 Anime4K）兼容性未知。
+
+        同步后注释掉 mpv.conf 里的 glsl-shaders 行，避免着色器编译失败拖慢或
+        打断起播；确认兼容后可移除这些注释。
+        """
+        conf_path = os.path.join(dest, "mpv.conf")
+        if not os.path.isfile(conf_path):
+            return
+
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except OSError as e:
+            logger.warning(f"[MPV Manager] Cannot read mpv.conf: {e}")
+            return
+
+        shader_line = re.compile(r"^\s*glsl-shaders(-append)?\s*=")
+        changed = False
+        for i, line in enumerate(lines):
+            if shader_line.match(line):
+                lines[i] = f"# [HanCast macOS] shader disabled: {line}"
+                changed = True
+
+        if not changed:
+            return
+
+        try:
+            with open(conf_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            logger.warning(
+                "[MPV Manager] Disabled glsl-shaders in mpv.conf for macOS compatibility"
+            )
+        except OSError as e:
+            logger.warning(f"[MPV Manager] Cannot update mpv.conf: {e}")
+
     def _validate_mpv(self, path: str) -> bool:
         """验证 mpv 是否可执行"""
         try:
@@ -174,6 +359,10 @@ class MpvManager:
                 [path, "--version"],
                 capture_output=True,
                 text=True,
+                # GUI 启动时没有 LANG，Python 默认编码可能是 ASCII；
+                # mpv 版本号里带 © 会直接抛 UnicodeDecodeError
+                encoding="utf-8",
+                errors="replace",
                 timeout=5,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )

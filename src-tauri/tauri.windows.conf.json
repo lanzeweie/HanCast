@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": ["hancast-sidecar/hancast-sidecar"],
+    "resources": [
+      "mpv/*",
+      "mpv/portable_config/**/*",
+      "*.dll",
+      "*.pyd",
+      "hancast_sidecar/**/*",
+      "certifi/**/*",
+      "lxml/**/*",
+      "charset_normalizer/**/*"
+    ]
+  }
+}

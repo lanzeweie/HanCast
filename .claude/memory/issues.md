@@ -46,6 +46,28 @@
 - **问题**: 每个平台的窗口特效 API 不同
 - **解决**: 使用 tauri-plugin-vibrancy 抽象层
 
+### COMP-004: macOS 声明的最低版本低于捆绑 mpv
+- **平台**: macOS arm64
+- **状态**: 🟢 已解决（2026-11-26）
+- **问题**: `tauri.macos.conf.json` 曾设 `minimumSystemVersion=12.0`，但当前
+  第三方自包含 mpv.app（stolendata 0.40.0）的 Mach-O `minos=14.0`；
+  在 macOS 12/13 上应用能开，MPV 起不来。
+- **检测**: `mac-build.sh` 从 tauri.macos.conf.json 读取配置值，
+  用 `vtool -show-build` 读取 mpv minos，高于配置时告警。
+- **解决**: 已将 minimumSystemVersion 提高到 14.0，与捆绑 mpv 对齐。
+
+### COMP-005: ad-hoc 构建下 macOS 本地网络授权不稳定
+- **平台**: macOS arm64
+- **状态**: 🟡 待稳定签名验证（Phase 3 测试中复现）
+- **现象**: 主进程 TCP 网关探测成功，但 sidecar 的 SSDP
+  `sendto` 仍报 `failure sending out data ... 239.255.255.250:1900`
+- **原因**: TCC 本地网络授权绑定签名身份与路径；ad-hoc 每次换构建路径都可能
+  需要重新授权，未授权时 sidecar 的发送被静默拒绝
+- **注意**: 这是“本地网络”隐私授权，不是应用防火墙；设置页的防火墙指引不能
+  解决该问题
+- **缓解**: 主进程启动预热（DEC-007）；测试时在系统设置 → 隐私与安全性 →
+  本地网络 中确认 HanCast 已勾选；正式分发使用稳定签名
+
 ---
 
 ## 架构风险

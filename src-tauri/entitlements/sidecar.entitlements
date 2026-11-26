@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Nuitka 产物在运行时加载同目录的 .so / libpython；开启 Hardened Runtime
+       后库验证会要求同一 Team ID，ad-hoc 签名没有 Team ID，必须显式关闭。 -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
